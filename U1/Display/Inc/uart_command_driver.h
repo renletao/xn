@@ -7,9 +7,9 @@
 /* LED 总开关命令；请求和返回均使用 CMD=0x01。 */
 #define UART_COMMAND_LED_CONTROL 0x01U
 
-/* 充电状态、电量和气压查询命令；请求无载荷，返回 6 字节载荷。 */
+/* 充电状态、电量、气压和压力泵状态查询命令；请求无载荷，返回 7 字节载荷。 */
 #define UART_COMMAND_CHARGING_STATUS 0x02U
-#define UART_COMMAND_CHARGING_STATUS_LENGTH 6U
+#define UART_COMMAND_CHARGING_STATUS_LENGTH 7U
 #define UART_COMMAND_CHARGING_OFF  0x00U
 #define UART_COMMAND_CHARGING_ON   0x01U
 #define UART_COMMAND_BATTERY_MAX_PERCENT 100U
@@ -47,7 +47,8 @@ uint8_t uart_command_toggle_remote_led(void);
 /* 主循环周期调用；到期时提交一次 CMD=0x02 查询，不阻塞等待返回。 */
 void uart_command_scan(void);
 
-/* 读取并清除最近一次有效的 CMD=0x02 数据；1=有新数据，0=暂无。 */
+/* 读取并清除最近一次有效的 CMD=0x02 数据；1=有新数据，0=暂无。
+ * 返回中的压力泵状态已同步到 uart_command_is_pump_running()。 */
 uint8_t uart_command_take_charging_status(uint8_t *charging,
                                            uint8_t *battery_percent,
                                            uint32_t *pressure_pa);
@@ -56,7 +57,8 @@ uint8_t uart_command_take_charging_status(uint8_t *charging,
 uint8_t uart_command_start_pump(uint32_t target_pressure_pa, uint8_t mode);
 uint8_t uart_command_pause_pump(void);
 
-/* S1 短按使用的启动/暂停切换；1=请求已提交，0=串口忙或参数无效。 */
+/* S1 短按先查询 U2 当前泵状态，再提交启动/暂停切换；
+ * 1=已提交查询或复用了进行中的查询，0=串口被其他命令占用。 */
 uint8_t uart_command_toggle_pump(uint32_t target_pressure_pa, uint8_t mode);
 
 /* 返回最近一次 U2 确认的压力泵状态：1=运行，0=停止/暂停。 */

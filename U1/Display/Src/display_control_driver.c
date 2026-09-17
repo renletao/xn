@@ -127,6 +127,8 @@ void display_control_scan(void)
         battery_icon_set_charging(charging);
         battery_icon_set_level(battery_level);
         pressure_display_set_actual_pa(pressure_pa);
+        /* 返回中的压力泵状态已由 uart_command_take_charging_status() 同步到
+         * 命令层，S1 短按前还会再主动查询一次，这里不需要额外处理。 */
     }
     /* S3 的事件先窥读并记录标志，再分别处理短按和长按功能。 */
     s3_events = key_peek_event(KEY_S3);

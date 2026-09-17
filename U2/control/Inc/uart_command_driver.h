@@ -6,9 +6,9 @@
 /* U1 Display 发给 U2 的 LED 总开关命令。 */
 #define UART_COMMAND_LED_CONTROL 0x01U
 
-/* U1 Display 查询充电状态、电量和气压的命令。请求无载荷，返回 6 字节。 */
+/* U1 Display 查询充电状态、电量、气压和压力泵状态的命令。请求无载荷，返回 7 字节。 */
 #define UART_COMMAND_CHARGING_STATUS          0x02U
-#define UART_COMMAND_CHARGING_STATUS_LENGTH   6U
+#define UART_COMMAND_CHARGING_STATUS_LENGTH   7U
 #define UART_COMMAND_CHARGING_OFF             0x00U
 #define UART_COMMAND_CHARGING_ON              0x01U
 #define UART_COMMAND_BATTERY_MAX_PERCENT      100U

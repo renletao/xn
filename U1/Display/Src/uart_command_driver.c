@@ -19,8 +19,11 @@ static uint8_t s_charging_status_pending;
 static uint8_t s_charging_state;
 static uint8_t s_battery_percent;
 static uint32_t s_pressure_pa;
-static uint32_t s_status_poll_tick;
 static uint8_t s_pump_running;
+static uint32_t s_status_poll_tick;
+static uint8_t s_pump_toggle_pending;
+static uint32_t s_pump_toggle_target_pa;
+static uint8_t s_pump_toggle_mode;
 
 /* LED状态只在收到U2确认后更新，避免发送失败时本地状态假成功。 */
 static uint8_t s_remote_led_state = UART_COMMAND_LED_ON;
@@ -76,7 +79,9 @@ static uint8_t uart_command_validate_response(uint8_t cmd,
             return (length == UART_COMMAND_CHARGING_STATUS_LENGTH) &&
                    ((payload[0] == UART_COMMAND_CHARGING_OFF) ||
                     (payload[0] == UART_COMMAND_CHARGING_ON)) &&
-                   (payload[1] <= UART_COMMAND_BATTERY_MAX_PERCENT);
+                   (payload[1] <= UART_COMMAND_BATTERY_MAX_PERCENT) &&
+                   ((payload[6] == UART_COMMAND_PUMP_STOPPED) ||
+                    (payload[6] == UART_COMMAND_PUMP_RUNNING));
         }
 
         if ((cmd == UART_COMMAND_PUMP_START) ||
@@ -116,6 +121,9 @@ void uart_control_init(void)
     s_pressure_pa = 0U;
     s_status_poll_tick = HAL_GetTick();
     s_pump_running = 0U;
+    s_pump_toggle_pending = 0U;
+    s_pump_toggle_target_pa = 0U;
+    s_pump_toggle_mode = UART_COMMAND_MODE_RAFT;
     for (index = 0U; index < UART_PROTOCOL_MAX_PAYLOAD; ++index)
     {
         s_response_payload[index] = 0U;
@@ -166,6 +174,9 @@ void uart_control_task(void)
     uint8_t command;
     uint8_t length;
     uint8_t index;
+    uint8_t follow_up_toggle = 0U;
+    uint32_t follow_up_target_pa = 0U;
+    uint8_t follow_up_mode = UART_COMMAND_MODE_RAFT;
     uint8_t payload[UART_PROTOCOL_MAX_PAYLOAD];
 
     /* 主循环维护半帧超时，避免异常中断或断线后解析器长期卡在半帧状态。 */
@@ -186,6 +197,14 @@ void uart_control_task(void)
                 if (uart_command_validate_response(command, payload, length) == 0U)
                 {
                     s_result = UART_CONTROL_RESULT_BAD_RESPONSE;
+                    /*
+                     * 本次状态查询作废，必须一起取消它携带的 S1 待切换请求，
+                     * 否则下一轮周期查询的合法返回会触发一次迟到的泵切换。
+                     */
+                    if (s_expected_cmd == UART_COMMAND_CHARGING_STATUS)
+                    {
+                        s_pump_toggle_pending = 0U;
+                    }
                     uart_control_unlock();
                     return;
                 }
@@ -209,7 +228,16 @@ void uart_control_task(void)
                     s_battery_percent = s_response_payload[1];
                     s_pressure_pa = uart_command_decode_u32_le(
                         &s_response_payload[2]);
+                    s_pump_running = (s_response_payload[6] ==
+                                      UART_COMMAND_PUMP_RUNNING) ? 1U : 0U;
                     s_charging_status_pending = 1U;
+                    if (s_pump_toggle_pending != 0U)
+                    {
+                        follow_up_toggle = 1U;
+                        follow_up_target_pa = s_pump_toggle_target_pa;
+                        follow_up_mode = s_pump_toggle_mode;
+                        s_pump_toggle_pending = 0U;
+                    }
                 }
                 else if (((s_response_cmd == UART_COMMAND_PUMP_START) ||
                           (s_response_cmd == UART_COMMAND_PUMP_PAUSE)) &&
@@ -221,6 +249,19 @@ void uart_control_task(void)
                 }
                 s_result = UART_CONTROL_RESULT_SUCCESS;
                 uart_control_unlock();
+                if (follow_up_toggle != 0U)
+                {
+                    /* 状态查询已完成并解锁，再提交真正的启动/暂停命令。 */
+                    if (s_pump_running != 0U)
+                    {
+                        (void)uart_command_pause_pump();
+                    }
+                    else
+                    {
+                        (void)uart_command_start_pump(follow_up_target_pa,
+                                                      follow_up_mode);
+                    }
+                }
                 return;
             }
         }
@@ -229,6 +270,11 @@ void uart_control_task(void)
         if ((int32_t)(HAL_GetTick() - s_response_deadline) >= 0)
         {
             s_result = UART_CONTROL_RESULT_TIMEOUT;
+            if ((s_expected_cmd == UART_COMMAND_CHARGING_STATUS) &&
+                (s_pump_toggle_pending != 0U))
+            {
+                s_pump_toggle_pending = 0U;
+            }
             uart_control_unlock();
         }
     }
@@ -369,15 +415,36 @@ uint8_t uart_command_toggle_pump(uint32_t target_pressure_pa, uint8_t mode)
 {
     if (uart_control_is_busy() != 0U)
     {
-        return 0U;
+        /*
+         * 周期轮询正在读取同一份状态时直接复用它：既不会丢掉落在轮询窗口
+         * 内的这次 S1，也省掉一帧重复查询。其他命令（例如 S3 的 LED 控制）
+         * 占用串口时无法复用，本次短按不生效。
+         */
+        if (s_expected_cmd != UART_COMMAND_CHARGING_STATUS)
+        {
+            return 0U;
+        }
     }
-
-    if (s_pump_running != 0U)
+    else
     {
-        return uart_command_pause_pump();
+        /* S1 按下时先读取 U2 当前状态，避免依赖最长滞后 1 秒的本地缓存。 */
+        if (uart_control_request(UART_COMMAND_CHARGING_STATUS, 0, 0U) == 0U)
+        {
+            return 0U;
+        }
+        /* 这次查询已经刷新了状态，周期轮询顺延一个周期。 */
+        s_status_poll_tick = HAL_GetTick();
     }
 
-    return uart_command_start_pump(target_pressure_pa, mode);
+    /*
+     * 查询已提交或已复用。真正的启动/暂停由 uart_control_task() 收到合法
+     * CMD=0x02 返回并解锁之后提交，切换依据的是 U2 的实时状态而不是缓存。
+     * 本函数只在主循环上下文调用，返回帧不会在这里被处理，因此这里赋值安全。
+     */
+    s_pump_toggle_target_pa = target_pressure_pa;
+    s_pump_toggle_mode = mode;
+    s_pump_toggle_pending = 1U;
+    return 1U;
 }
 
 uint8_t uart_command_is_pump_running(void)

@@ -15,7 +15,7 @@
 
 /*
  * CMD=0x02 的电量模拟值：80%。电池尚未接入，变量放在全局作用域，便于
- * 调试器或后续业务代码直接修改；充电状态和气压不使用模拟值。
+ * 调试器或后续业务代码直接修改；充电状态、气压和泵状态不使用模拟值。
  */
 volatile uint8_t g_uart_simulated_battery_percent = 80U;
 /* 兼容保留的模拟气压变量；WF183D_USE_REAL_SENSOR=1 时不参与返回。 */
@@ -157,6 +157,10 @@ void uart_command_task(void)
     response_payload[3] = (uint8_t)((pressure_pa >> 8U) & 0xFFU);
     response_payload[4] = (uint8_t)((pressure_pa >> 16U) & 0xFFU);
     response_payload[5] = (uint8_t)((pressure_pa >> 24U) & 0xFFU);
+    /* 返回当前压力泵开关状态：1=运行，0=停止/暂停。 */
+    response_payload[6] = (g_uart_pump_running != 0U) ?
+                          UART_COMMAND_PUMP_RUNNING :
+                          UART_COMMAND_PUMP_STOPPED;
 
     (void)uart_protocol_send(UART_COMMAND_CHARGING_STATUS,
                              response_payload,
