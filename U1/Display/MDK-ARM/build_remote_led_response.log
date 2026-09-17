@@ -1,0 +1,13 @@
+*** Using Compiler 'V5.06 update 6 (build 750)', folder: 'D:\APP\keil\ARM\ARMCC\Bin'
+Build target 'Project'
+compiling uart_command_driver.c...
+..\Inc\uart_command_driver.h(21): error:  #20: identifier "uint8_t" is undefined
+  uint8_t uart_command_set_remote_led(uint8_t enabled);
+..\Inc\uart_command_driver.h(21): error:  #20: identifier "uint8_t" is undefined
+  uint8_t uart_command_set_remote_led(uint8_t enabled);
+..\Inc\uart_command_driver.h(24): error:  #20: identifier "uint8_t" is undefined
+  uint8_t uart_command_toggle_remote_led(void);
+..\Src\uart_command_driver.c: 0 warnings, 3 errors
+".\Objects\Project.axf" - 3 Error(s), 0 Warning(s).
+Target not created.
+Build Time Elapsed:  00:00:01
