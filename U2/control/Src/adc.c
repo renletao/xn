@@ -16,6 +16,20 @@
 ADC_HandleTypeDef hadc1;
 volatile ADC_U1_DataTypeDef g_adc_data;
 
+static uint16_t s_battery_vref_mv = 3300U;
+static uint32_t s_battery_last_sample_ms;
+static uint16_t s_battery_first_raw;
+static uint16_t s_current_first_raw;
+static uint8_t s_battery_pair_count;
+static uint32_t s_battery_window_sum;
+static uint16_t s_battery_window_count;
+static uint8_t s_battery_level = ADC_BATTERY_MAX_LEVEL;
+static uint8_t s_battery_initialized;
+static uint8_t s_battery_low;
+static uint8_t s_battery_context_valid;
+static uint8_t s_battery_last_charging;
+static uint8_t s_battery_last_motor_running;
+
 void HAL_ADC_MspInit(ADC_HandleTypeDef *hadc)
 {
   GPIO_InitTypeDef gpio_init = {0};
@@ -163,6 +177,204 @@ uint16_t adc_raw_to_mv(uint16_t raw, uint16_t vref_mv)
                     ADC_U1_MAX_VALUE);
 }
 
+static uint8_t adc_battery_level_from_temp(uint32_t temp_adc,
+                                            uint8_t charging,
+                                            uint8_t motor_running)
+{
+  static const uint16_t normal_thresholds[3] = {1650U, 1544U, 1393U};
+  static const uint16_t work_thresholds[3] = {1393U, 1262U, 1220U};
+  static const uint16_t charge_thresholds[3] = {1725U, 1619U, 1469U};
+  const uint16_t *thresholds;
+
+  if (charging != 0U)
+  {
+    thresholds = charge_thresholds;
+  }
+  else if (motor_running != 0U)
+  {
+    thresholds = work_thresholds;
+  }
+  else
+  {
+    thresholds = normal_thresholds;
+  }
+
+  if (temp_adc >= thresholds[0])
+  {
+    return 0U;
+  }
+  if (temp_adc >= thresholds[1])
+  {
+    return 1U;
+  }
+  if (temp_adc >= thresholds[2])
+  {
+    return 2U;
+  }
+  return 3U;
+}
+
+static void adc_battery_reset_window(uint8_t charging, uint8_t motor_running)
+{
+  s_battery_pair_count = 0U;
+  s_battery_window_sum = 0U;
+  s_battery_window_count = 0U;
+  s_battery_context_valid = 1U;
+  s_battery_last_charging = charging;
+  s_battery_last_motor_running = motor_running;
+}
+
+static void adc_battery_apply_average(uint32_t temp_adc,
+                                      uint8_t usb_inserted,
+                                      uint8_t charging,
+                                      uint8_t motor_running,
+                                      uint8_t force_initial)
+{
+  uint8_t adc_level = adc_battery_level_from_temp(temp_adc,
+                                                  charging,
+                                                  motor_running);
+
+  s_battery_low = (adc_level >= ADC_BATTERY_MAX_LEVEL) ? 1U : 0U;
+
+  if ((force_initial != 0U) || (s_battery_initialized == 0U))
+  {
+    s_battery_level = adc_level;
+    s_battery_initialized = 1U;
+    return;
+  }
+
+  if (charging != 0U)
+  {
+    if (adc_level < s_battery_level)
+    {
+      --s_battery_level;
+    }
+  }
+  else if (usb_inserted == 0U)
+  {
+    if (adc_level > s_battery_level)
+    {
+      ++s_battery_level;
+    }
+  }
+  /* USB 已插入但尚未检测到充电电流时，保持当前电量等级。 */
+}
+
+static void adc_battery_update_pair(uint16_t battery_raw,
+                                    uint16_t current_raw,
+                                    uint8_t usb_inserted,
+                                    uint8_t motor_running)
+{
+  uint16_t battery_mv;
+  uint16_t current_mv;
+  uint16_t pair_average;
+  uint8_t charging;
+
+  if (s_battery_pair_count == 0U)
+  {
+    s_battery_first_raw = battery_raw;
+    s_current_first_raw = current_raw;
+    s_battery_pair_count = 1U;
+    return;
+  }
+
+  pair_average = (uint16_t)(((uint32_t)s_battery_first_raw +
+                             (uint32_t)battery_raw + 1U) / 2U);
+  current_raw = (uint16_t)(((uint32_t)s_current_first_raw +
+                            (uint32_t)current_raw + 1U) / 2U);
+  s_battery_pair_count = 0U;
+
+  battery_mv = adc_raw_to_mv(pair_average, s_battery_vref_mv);
+  current_mv = adc_raw_to_mv(current_raw, s_battery_vref_mv);
+  g_adc_data.battery.raw = pair_average;
+  g_adc_data.battery.pin_mv = battery_mv;
+  g_adc_data.current.raw = current_raw;
+  g_adc_data.current.pin_mv = current_mv;
+  g_adc_data.battery_mv = (uint32_t)battery_mv * 11U;
+  g_adc_data.current_ma = ((int32_t)current_mv -
+                           (int32_t)PY32_U1_CURRENT_ZERO_MV) *
+                          (int32_t)PY32_U1_CURRENT_MA_PER_MV;
+
+  charging = ((usb_inserted != 0U) && (g_adc_data.current_ma < 0)) ?
+             1U : 0U;
+  if ((s_battery_context_valid == 0U) ||
+      (charging != s_battery_last_charging) ||
+      (motor_running != s_battery_last_motor_running))
+  {
+    adc_battery_reset_window(charging, motor_running);
+  }
+
+  s_battery_window_sum += pair_average;
+  ++s_battery_window_count;
+  if (s_battery_window_count >= ADC_BATTERY_AVERAGE_COUNT)
+  {
+    uint32_t temp_adc = (s_battery_window_sum +
+                         (ADC_BATTERY_AVERAGE_COUNT / 2U)) /
+                        ADC_BATTERY_AVERAGE_COUNT;
+    s_battery_window_sum = 0U;
+    s_battery_window_count = 0U;
+    adc_battery_apply_average(temp_adc, usb_inserted, charging,
+                              motor_running, 0U);
+  }
+}
+
+void adc_battery_startup_sample(uint8_t usb_inserted, uint8_t motor_running)
+{
+  uint32_t sample_sum = 0U;
+  uint16_t index;
+
+  s_battery_vref_mv = get_vref();
+  g_adc_data.vref_mv = s_battery_vref_mv;
+  s_battery_pair_count = 0U;
+  s_battery_window_sum = 0U;
+  s_battery_window_count = 0U;
+  s_battery_context_valid = 0U;
+
+  for (index = 0U; index < (ADC_BATTERY_AVERAGE_COUNT * 2U); ++index)
+  {
+    sample_sum += adc_read_bat_raw();
+  }
+
+  adc_battery_apply_average((sample_sum +
+                             (ADC_BATTERY_AVERAGE_COUNT)) /
+                             (ADC_BATTERY_AVERAGE_COUNT * 2U),
+                             usb_inserted, 0U, motor_running, 1U);
+  s_battery_last_sample_ms = HAL_GetTick();
+}
+
+void adc_battery_task_100hz(uint8_t usb_inserted, uint8_t motor_running)
+{
+  uint32_t now = HAL_GetTick();
+
+  if ((uint32_t)(now - s_battery_last_sample_ms) <
+      ADC_BATTERY_SAMPLE_PERIOD_MS)
+  {
+    return;
+  }
+  s_battery_last_sample_ms = now;
+
+  adc_battery_update_pair(adc_read_bat_raw(), adc_read_current_raw(),
+                          usb_inserted, motor_running);
+}
+
+uint8_t adc_get_battery_level(void)
+{
+  return s_battery_level;
+}
+
+uint8_t adc_battery_is_low(void)
+{
+  return s_battery_low;
+}
+
+void adc_battery_charge_timeout_step(void)
+{
+  if (s_battery_level > 0U)
+  {
+    --s_battery_level;
+  }
+}
+
 void adc_task_100ms(void)
 {
   static uint32_t last_sample_ms;
@@ -178,29 +390,13 @@ void adc_task_100ms(void)
 
   /* 先更新参考电压，再使用同一次参考值换算四个外部通道。 */
   vref_mv = get_vref();
+  s_battery_vref_mv = vref_mv;
   g_adc_data.vref_mv = vref_mv;
 
-  g_adc_data.battery.raw = adc_read_bat_raw();
-  g_adc_data.current.raw = adc_read_current_raw();
   g_adc_data.motor.raw = adc_read_moto_raw();
-  g_adc_data.input_12v.raw = adc_read_12v_raw();
-
-  g_adc_data.battery.pin_mv = adc_raw_to_mv(g_adc_data.battery.raw, vref_mv);
-  g_adc_data.current.pin_mv = adc_raw_to_mv(g_adc_data.current.raw, vref_mv);
   g_adc_data.motor.pin_mv = adc_raw_to_mv(g_adc_data.motor.raw, vref_mv);
+  g_adc_data.input_12v.raw = adc_read_12v_raw();
   g_adc_data.input_12v.pin_mv = adc_raw_to_mv(g_adc_data.input_12v.raw, vref_mv);
-
-  /* PA3：100 k/(1 M+100 k) 分压，外部电池电压约为引脚电压的 11 倍。 */
-  g_adc_data.battery_mv = (uint32_t)g_adc_data.battery.pin_mv * 11U;
-
-  /*
-   * PA4：以零电流基准电压为中心换算有符号电流。
-   * 低于零点得到负值（充电），高于或等于零点得到非负值（放电）。
-   * 零点和比例必须依据实际采样电阻、放大器增益及方向进行校准。
-   */
-  g_adc_data.current_ma = ((int32_t)g_adc_data.current.pin_mv -
-                           (int32_t)PY32_U1_CURRENT_ZERO_MV) *
-                          (int32_t)PY32_U1_CURRENT_MA_PER_MV;
 
   /* PB0/PB1 的分压比例由硬件决定，当前配置宏默认为 1:1。 */
   g_adc_data.motor_mv = ((uint32_t)g_adc_data.motor.pin_mv *

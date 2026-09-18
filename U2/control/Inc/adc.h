@@ -3,7 +3,8 @@
   * @brief   U1 板四路 ADC 初始化、采样和电压/电流换算接口。
   *
   * ADC 通道分配如下：PA3 为电池电压，PA4 为电流检测，PB0 为电机电压，
-  * PB1 为 12 V 电压。adc_task_100ms() 会每 100 ms 更新一次全局结果结构体。
+  * PB1 为 12 V 电压。电池和充电电流由 adc_battery_task_100hz() 以 100 Hz
+  * 采样；电机电压和 12 V 电压仍由 adc_task_100ms() 低速更新。
   */
 
 #ifndef __U1_ADC_H
@@ -16,6 +17,9 @@ extern "C" {
 #endif
 
 #define ADC_U1_MAX_VALUE             4095U
+#define ADC_BATTERY_SAMPLE_PERIOD_MS 10U
+#define ADC_BATTERY_AVERAGE_COUNT    64U
+#define ADC_BATTERY_MAX_LEVEL        3U
 
 typedef struct
 {
@@ -44,6 +48,16 @@ void adc_suspend(void);
 void adc_resume(void);
 /** 周期任务入口；函数可在主循环中高频调用，内部自动限制为 100 ms 执行一次。 */
 void adc_task_100ms(void);
+/** 电池/充电电流采样入口；主循环可高频调用，内部按 10 ms 节拍运行。 */
+void adc_battery_task_100hz(uint8_t usb_inserted, uint8_t motor_running);
+/** 上电阶段连续采集 128 个原始电池样本，并初始化电量等级。 */
+void adc_battery_startup_sample(uint8_t usb_inserted, uint8_t motor_running);
+/** 返回当前电量等级：0 满电，3 低电。 */
+uint8_t adc_get_battery_level(void);
+/** 返回最近一次完整 64 点平均是否落在低电档。 */
+uint8_t adc_battery_is_low(void);
+/** 充电超时按一级向满电方向推进电量等级。 */
+void adc_battery_charge_timeout_step(void);
 /** 读取指定 ADC 通道的一次原始转换结果。 */
 uint16_t adc_read_channel_raw(uint32_t channel);
 /** 将 ADC 原始值按实际参考电压换算为引脚电压，单位 mV。 */

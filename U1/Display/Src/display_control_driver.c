@@ -44,7 +44,7 @@ void display_control_scan(void)
 
     uint32_t s3_events;
     uint8_t charging;
-    uint8_t battery_percent;
+    uint8_t battery_level;
     uint32_t pressure_pa;
 
     /*
@@ -118,27 +118,19 @@ void display_control_scan(void)
     battery_icon_scan();
 
     /* 消费最近一次有效的 CMD=0x02 返回，更新本地充电和实际压力显示。 */
-    if (uart_command_take_charging_status(&charging, &battery_percent,
+    if (uart_command_take_charging_status(&charging, &battery_level,
                                           &pressure_pa) != 0U)
     {
-        uint8_t battery_level = 0U;
+        uint8_t display_level;
 
-        if (battery_percent > 80U)
-        {
-            battery_level = 3U;
-        }
-        else if (battery_percent > 60U)
-        {
-            battery_level = 2U;
-        }
-        else if (battery_percent > 30U)
-        {
-            battery_level = 1U;
-        }
+        /* U2 返回的是反向电量档位：0=满电，3=低电；图标使用显示格数。 */
+        display_level = (battery_level <= UART_COMMAND_BATTERY_MAX_LEVEL) ?
+                        (uint8_t)(UART_COMMAND_BATTERY_MAX_LEVEL -
+                                  battery_level) : 0U;
 
         dc_led_set_charging(charging);
         battery_icon_set_charging(charging);
-        battery_icon_set_level(battery_level);
+        battery_icon_set_level(display_level);
         pressure_display_set_actual_pa(pressure_pa);
         /* 返回中的压力泵状态已由 uart_command_take_charging_status() 同步到
          * 命令层，S1 短按前还会再主动查询一次，这里不需要额外处理。 */

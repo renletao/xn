@@ -11,7 +11,7 @@
 #define UART_COMMAND_CHARGING_STATUS_LENGTH   7U
 #define UART_COMMAND_CHARGING_OFF             0x00U
 #define UART_COMMAND_CHARGING_ON              0x01U
-#define UART_COMMAND_BATTERY_MAX_PERCENT      100U
+#define UART_COMMAND_BATTERY_MAX_LEVEL        3U
 #define UART_COMMAND_LED_OFF     0x00U
 #define UART_COMMAND_LED_ON      0x01U
 
@@ -35,11 +35,6 @@
 #define UART_COMMAND_MODE_AIR_BED              0x01U
 #define UART_COMMAND_MODE_TIRE                 0x02U
 
-/*
- * 模拟数据：电池尚未接入，CMD=0x02 使用全局电量值返回；气压已改为
- * 返回 WF183D 实时采集值。电量后续接入电池换算后可替换该变量。
- */
-extern volatile uint8_t g_uart_simulated_battery_percent;
 /* 仅在 WF183D_USE_REAL_SENSOR=0 时作为气压模拟值保留。 */
 extern volatile uint32_t g_uart_simulated_pressure_pa;
 /* 目标气压按“设置时加去皮值”保存，单位 Pa；协议范围为 1~99900000。 */

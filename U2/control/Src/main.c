@@ -51,6 +51,8 @@ int main(void)
 
   /* 初始化充电策略：默认允许充电，但 USB 未插入时保持 IP2326 关闭。 */
   charge_init();
+  /* 进入主循环前先完成 128 个原始电池采样，建立初始 BatLevel。 */
+  adc_battery_startup_sample(0U, 0U);
   power_manager_init();
 
   while (1)
@@ -58,10 +60,19 @@ int main(void)
     /*
      * 主循环采用轮询调度，不在这里直接阻塞等待固定周期。
      * 每个任务内部根据 HAL_GetTick() 判断是否到了自己的执行时间，
-     * 这样 USB 检测可以持续消抖，ADC 又能保持 100 ms 的采样周期。
-     */
+     * 这样 USB 检测可以持续消抖，电池采样保持 10 ms、其他工程量采样保持 100 ms。
+    */
     /* 持续检测 USBIN；电平稳定 20 ms 后才更新 IP2326_EN。 */
     usbin_task();
+
+    /* 电池和充电电流以 100 Hz 采样，内部完成 2 点/64 点平均。 */
+    adc_battery_task_100hz(usbin_is_inserted(), g_uart_pump_running);
+
+    /* 电机电压和 12 V 电压保持 100 ms 的低速采样。 */
+    adc_task_100ms();
+
+    /* 先更新充电和保护状态，再接受新的电机命令。 */
+    charge_task();
 
     /* 接收 U1 发来的 AA55 控制帧，处理状态查询和压力泵控制。 */
     uart_command_task();
@@ -74,11 +85,6 @@ int main(void)
     /* 按模式、实时气压和目标气压选择压力泵或停止输出。 */
     uart_command_pump_task();
 
-    /* 根据 USB 状态和软件允许标志统一控制 IP2326_EN 及其状态灯。 */
-    charge_task();
-
-    /* 检查 100 ms 采样周期，到了时间才读取四路 ADC 并更新 g_adc_data。 */
-    adc_task_100ms();
     power_manager_task();
   }
 }

@@ -5,6 +5,7 @@
 
 #include "uart_command_driver.h"
 #include "charge.h"
+#include "adc.h"
 #include "led.h"
 #include "moto.h"
 #include "py32f0xx_hal.h"
@@ -14,16 +15,20 @@
 #include "wf183d.h"
 #include "power_manager.h"
 
-/*
- * CMD=0x02 的电量模拟值：80%。电池尚未接入，变量放在全局作用域，便于
- * 调试器或后续业务代码直接修改；充电状态、气压和泵状态不使用模拟值。
- */
-volatile uint8_t g_uart_simulated_battery_percent = 80U;
 /* 兼容保留的模拟气压变量；WF183D_USE_REAL_SENSOR=1 时不参与返回。 */
 volatile uint32_t g_uart_simulated_pressure_pa = 101325U;
 volatile uint32_t g_uart_pump_target_pressure_pa;
 volatile uint8_t g_uart_pump_mode = UART_COMMAND_MODE_RAFT;
 volatile uint8_t g_uart_pump_running;
+
+static void uart_command_enforce_motor_protection(void)
+{
+  if (charge_is_motor_start_allowed() == 0U)
+  {
+    g_uart_pump_running = 0U;
+    moto_stop();
+  }
+}
 
 static uint32_t uart_command_decode_u32_le(const uint8_t *data)
 {
@@ -36,6 +41,13 @@ static uint32_t uart_command_decode_u32_le(const uint8_t *data)
 void uart_command_pump_task(void)
 {
   uint32_t pressure_pa;
+
+  if (charge_is_motor_start_allowed() == 0U)
+  {
+    g_uart_pump_running = 0U;
+    moto_stop();
+    return;
+  }
 
   if (g_uart_pump_running == 0U)
   {
@@ -109,6 +121,8 @@ void uart_command_task(void)
 
   /* 主循环负责清理未完成超时帧，不在中断中调用 HAL_GetTick 以外的业务。 */
   uart_protocol_timeout_scan();
+  /* 先同步本地保护状态，保证随后返回的泵状态不会滞后一轮。 */
+  uart_command_enforce_motor_protection();
 
   if (uart_protocol_frame_available() == 0U)
   {
@@ -143,7 +157,7 @@ void uart_command_task(void)
 
   if ((command == UART_COMMAND_CHARGING_STATUS) && (length == 0U))
   {
-    uint8_t battery_percent = g_uart_simulated_battery_percent;
+    uint8_t battery_level = adc_get_battery_level();
     uint32_t pressure_pa = g_uart_simulated_pressure_pa;
 
 #if WF183D_USE_REAL_SENSOR
@@ -156,12 +170,12 @@ void uart_command_task(void)
                            UART_COMMAND_CHARGING_ON :
                            UART_COMMAND_CHARGING_OFF;
 
-    /* Display 约定电量范围为 0~100，避免调试时误设值导致返回帧被拒收。 */
-    if (battery_percent > UART_COMMAND_BATTERY_MAX_PERCENT)
+    /* Display 约定 BatLevel 范围为 0~3，0 为满电、3 为低电。 */
+    if (battery_level > UART_COMMAND_BATTERY_MAX_LEVEL)
     {
-      battery_percent = UART_COMMAND_BATTERY_MAX_PERCENT;
+      battery_level = UART_COMMAND_BATTERY_MAX_LEVEL;
     }
-    response_payload[1] = battery_percent;
+    response_payload[1] = battery_level;
 
     /* 气压按 Display 约定使用 32 位小端 Pa 值。 */
     response_payload[2] = (uint8_t)(pressure_pa & 0xFFU);
@@ -188,7 +202,8 @@ void uart_command_task(void)
       uint32_t target_pressure_pa = uart_command_decode_u32_le(payload);
       uint8_t mode = payload[4];
 
-      if ((target_pressure_pa > 0U) &&
+      if ((charge_is_motor_start_allowed() != 0U) &&
+          (target_pressure_pa > 0U) &&
           (target_pressure_pa <= UART_COMMAND_PUMP_MAX_PRESSURE_PA) &&
           (mode <= UART_COMMAND_MODE_TIRE) &&
           (wf183d_is_tare_ready() != 0U))

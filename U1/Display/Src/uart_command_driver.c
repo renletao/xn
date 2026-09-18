@@ -17,7 +17,8 @@ static uint8_t s_response_payload[UART_PROTOCOL_MAX_PAYLOAD];
 /* 最近一次有效的 CMD=0x02 数据，由显示层在主循环中消费。 */
 static uint8_t s_charging_status_pending;
 static uint8_t s_charging_state;
-static uint8_t s_battery_percent;
+/* CMD=0x02 byte1：U2 的电量档位，0=满电、3=低电/空电。 */
+static uint8_t s_battery_level;
 static uint32_t s_pressure_pa;
 static uint8_t s_pump_running;
 static uint32_t s_status_poll_tick;
@@ -79,7 +80,7 @@ static uint8_t uart_command_validate_response(uint8_t cmd,
             return (length == UART_COMMAND_CHARGING_STATUS_LENGTH) &&
                    ((payload[0] == UART_COMMAND_CHARGING_OFF) ||
                     (payload[0] == UART_COMMAND_CHARGING_ON)) &&
-                   (payload[1] <= UART_COMMAND_BATTERY_MAX_PERCENT) &&
+                   (payload[1] <= UART_COMMAND_BATTERY_MAX_LEVEL) &&
                    ((payload[6] == UART_COMMAND_PUMP_STOPPED) ||
                     (payload[6] == UART_COMMAND_PUMP_RUNNING));
         }
@@ -123,7 +124,7 @@ void uart_control_init(void)
     s_remote_led_state = UART_COMMAND_LED_ON;
     s_charging_status_pending = 0U;
     s_charging_state = UART_COMMAND_CHARGING_OFF;
-    s_battery_percent = 0U;
+    s_battery_level = 0U;
     s_pressure_pa = 0U;
     s_status_poll_tick = HAL_GetTick();
     s_pump_running = 0U;
@@ -176,6 +177,7 @@ uint8_t uart_control_request(uint8_t cmd, const uint8_t *payload,
     if (uart_protocol_send(cmd, payload, length) < 0)
     {
         uart_control_unlock();
+        s_expected_cmd = 0U;
         s_result = UART_CONTROL_RESULT_SEND_ERROR;
         return 0U;
     }
@@ -222,6 +224,7 @@ void uart_control_task(void)
                         s_pump_toggle_pending = 0U;
                     }
                     uart_control_unlock();
+                    s_expected_cmd = 0U;
                     return;
                 }
 
@@ -241,7 +244,7 @@ void uart_control_task(void)
                          (s_response_length == UART_COMMAND_CHARGING_STATUS_LENGTH))
                 {
                     s_charging_state = s_response_payload[0];
-                    s_battery_percent = s_response_payload[1];
+                    s_battery_level = s_response_payload[1];
                     s_pressure_pa = uart_command_decode_u32_le(
                         &s_response_payload[2]);
                     s_pump_running = (s_response_payload[6] ==
@@ -265,6 +268,7 @@ void uart_control_task(void)
                 }
                 s_result = UART_CONTROL_RESULT_SUCCESS;
                 uart_control_unlock();
+                s_expected_cmd = 0U;
                 if (follow_up_toggle != 0U)
                 {
                     /* 状态查询已完成并解锁，再提交真正的启动/暂停命令。 */
@@ -292,6 +296,7 @@ void uart_control_task(void)
                 s_pump_toggle_pending = 0U;
             }
             uart_control_unlock();
+            s_expected_cmd = 0U;
         }
     }
     else
@@ -364,7 +369,11 @@ void uart_command_scan(void)
 {
     uint32_t now = HAL_GetTick();
 
-    if (s_expected_cmd == UART_COMMAND_SLEEP)
+    /* 只在休眠请求仍等待 U2 应答时暂停轮询。事务超时、收到 BUSY 或
+     * 发送失败后 s_transaction_busy 会清零，必须允许 CMD=0x02 恢复，
+     * 否则一次失败的休眠握手会永久卡住状态查询。 */
+    if ((s_expected_cmd == UART_COMMAND_SLEEP) &&
+        (s_transaction_busy != 0U))
     {
         return;
     }
@@ -389,17 +398,17 @@ void uart_command_scan(void)
 }
 
 uint8_t uart_command_take_charging_status(uint8_t *charging,
-                                           uint8_t *battery_percent,
+                                           uint8_t *battery_level,
                                            uint32_t *pressure_pa)
 {
-    if ((charging == 0) || (battery_percent == 0) || (pressure_pa == 0) ||
+    if ((charging == 0) || (battery_level == 0) || (pressure_pa == 0) ||
         (s_charging_status_pending == 0U))
     {
         return 0U;
     }
 
     *charging = s_charging_state;
-    *battery_percent = s_battery_percent;
+    *battery_level = s_battery_level;
     *pressure_pa = s_pressure_pa;
     s_charging_status_pending = 0U;
     return 1U;
@@ -439,7 +448,8 @@ uint8_t uart_command_request_sleep(void)
 
 uint8_t uart_command_sleep_in_progress(void)
 {
-    return (s_expected_cmd == UART_COMMAND_SLEEP) ? 1U : 0U;
+    return ((s_expected_cmd == UART_COMMAND_SLEEP) &&
+            (s_transaction_busy != 0U)) ? 1U : 0U;
 }
 
 uint8_t uart_command_toggle_pump(uint32_t target_pressure_pa, uint8_t mode)

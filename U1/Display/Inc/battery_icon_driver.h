@@ -6,7 +6,7 @@
 /* 电池图标使用 Q8/P15（PC0）作为公共端扫描线。
    要正常显示，Option Byte 必须将 PC0 配置为普通 GPIO。 */
 #define BATTERY_ICON_MAX_LEVEL       3U   /* 电量格数上限。 */
-#define BATTERY_ICON_ANIMATION_MS    250U /* 充电动画每一帧持续时间。 */
+#define BATTERY_ICON_ANIMATION_MS    500U /* 充电动画每一帧持续约 500 ms。 */
 
 /* 初始化电池图标状态，默认电量 0 格、非充电。 */
 void battery_icon_init(void);

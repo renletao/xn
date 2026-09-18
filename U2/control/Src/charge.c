@@ -11,6 +11,7 @@
 #include "ip2326.h"
 #include "led.h"
 #include "usbin.h"
+#include "py32f0xx_hal.h"
 
 /* 软件策略状态：1 表示允许充电，0 表示禁止充电。默认允许。 */
 static uint8_t charge_allowed;
@@ -20,6 +21,11 @@ static uint8_t charge_output_state;
 
 /* 最近一次根据 USB 和软件策略计算出的公开状态。 */
 static ChargeStateTypeDef charge_state;
+
+/* 低电保护锁存；USB 插入后清除，但 USB 期间仍禁止电机。 */
+static uint8_t low_protection_active;
+static uint32_t charge_timeout_tick;
+static uint32_t charge_timeout_count;
 
 /* 用户后续注册的电量转换回调；NULL 表示实际算法尚未提供。 */
 static ChargeBatteryPercentConverter battery_converter;
@@ -75,6 +81,9 @@ void charge_init(void)
   charge_allowed = 1U;
   charge_output_state = 0xFFU;
   charge_state = CHARGE_STATE_IDLE;
+  /* 低电锁存只允许 USB 插入时由 charge_task() 清除；休眠唤醒不能绕过保护。 */
+  charge_timeout_tick = HAL_GetTick();
+  charge_timeout_count = 0U;
   battery_converter = (ChargeBatteryPercentConverter)0;
 
   /* 初始化阶段强制关闭状态灯，避免上电时沿用未知的 GPIO 电平。 */
@@ -86,9 +95,44 @@ void charge_task(void)
 {
   /* usbin_task() 必须先运行，下面读取的状态才是最新的消抖结果。 */
   uint8_t usb_inserted = usbin_is_inserted();
+  uint32_t now = HAL_GetTick();
 
   charge_apply_output(usb_inserted);
   charge_update_state(usb_inserted);
+
+  if (usb_inserted != 0U)
+  {
+    /* USB 插入解除低电锁存，但 USB 期间仍由启动入口禁止电机。 */
+    low_protection_active = 0U;
+  }
+  else if ((adc_get_battery_level() >= ADC_BATTERY_MAX_LEVEL) &&
+           (adc_battery_is_low() != 0U))
+  {
+    low_protection_active = 1U;
+  }
+
+  if (charge_state == CHARGE_STATE_CHARGING)
+  {
+    while ((uint32_t)(now - charge_timeout_tick) >= CHARGE_TIMEOUT_STEP_MS)
+    {
+      charge_timeout_tick += CHARGE_TIMEOUT_STEP_MS;
+      if (charge_timeout_count < CHARGE_TIMEOUT_MAX_TICKS)
+      {
+        ++charge_timeout_count;
+      }
+      if (charge_timeout_count >= CHARGE_TIMEOUT_MAX_TICKS)
+      {
+        /* 21600 × 1.024 s 之后只推进一个等级，再重新计时。 */
+        adc_battery_charge_timeout_step();
+        charge_timeout_count = 0U;
+      }
+    }
+  }
+  else
+  {
+    charge_timeout_tick = now;
+    charge_timeout_count = 0U;
+  }
 }
 
 void charge_enable(void)
@@ -125,6 +169,17 @@ uint8_t charge_is_usb_inserted(void)
 ChargeStateTypeDef charge_get_state(void)
 {
   return charge_state;
+}
+
+uint8_t charge_is_motor_start_allowed(void)
+{
+  return ((usbin_is_inserted() == 0U) &&
+          (low_protection_active == 0U)) ? 1U : 0U;
+}
+
+uint8_t charge_is_low_protection_active(void)
+{
+  return low_protection_active;
 }
 
 void charge_set_battery_converter(ChargeBatteryPercentConverter converter)

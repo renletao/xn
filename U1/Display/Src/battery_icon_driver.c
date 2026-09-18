@@ -13,10 +13,26 @@ static uint8_t s_charging;
 static uint8_t s_animation_level;
 static uint32_t s_last_animation_tick;
 
-static uint8_t battery_icon_animation_start_level(void)
+static uint8_t battery_icon_animation_high_level(void)
 {
-    /* 0 格充电时从第 1 格开始；已有电量则从已有格数开始动画。 */
-    return (s_level == 0U) ? 1U : s_level;
+    /*
+     * s_level 是图标显示格数，而协议的 BatLevel 由显示层反向映射得到：
+     * 3/2 格在满电方向闪烁，1 格在 2/1 格之间闪烁，0 格在 1/0 格之间闪烁。
+     */
+    if (s_level >= 2U)
+    {
+        return 3U;
+    }
+    return (s_level == 1U) ? 2U : 1U;
+}
+
+static uint8_t battery_icon_animation_low_level(void)
+{
+    if (s_level >= 2U)
+    {
+        return 2U;
+    }
+    return (s_level == 1U) ? 1U : 0U;
 }
 
 static uint8_t battery_icon_level_mask(uint8_t level)
@@ -48,14 +64,10 @@ static uint8_t battery_icon_level_mask(uint8_t level)
 
 static uint8_t battery_icon_display_level(void)
 {
-    /*
-     * 非充电或满电时直接显示实际电量。
-     * 充电未满时，动画值不能小于实际电量，确保已经充满的格保持长亮。
-     */
-    if ((s_charging != 0U) && (s_level < BATTERY_ICON_MAX_LEVEL))
+    /* 充电时直接显示当前动画帧，非充电时保持当前实际电量。 */
+    if (s_charging != 0U)
     {
-        /* 已有电量格保持点亮，只对剩余电量格执行动画。 */
-        return (s_animation_level < s_level) ? s_level : s_animation_level;
+        return s_animation_level;
     }
 
     return s_level;
@@ -75,7 +87,7 @@ void battery_icon_init(void)
     /* 初始化软件状态；此时 LED 驱动已经建立显示缓存。 */
     s_level = 0U;
     s_charging = 0U;
-    s_animation_level = 1U;
+    s_animation_level = 0U;
     s_last_animation_tick = HAL_GetTick();
     battery_icon_refresh();
 }
@@ -84,8 +96,8 @@ void battery_icon_scan(void)
 {
     uint32_t now;
 
-    /* 未充电或已满电时不需要动画，保留当前静态显示。 */
-    if ((s_charging == 0U) || (s_level >= BATTERY_ICON_MAX_LEVEL))
+    /* 未充电时不需要动画，保留当前静态显示。 */
+    if (s_charging == 0U)
     {
         return;
     }
@@ -98,43 +110,34 @@ void battery_icon_scan(void)
     }
 
     s_last_animation_tick = now;
-    /* 到达第 3 格后回到当前实际电量，形成循环动画。 */
-    if (s_animation_level >= BATTERY_ICON_MAX_LEVEL)
+    /* 在本档位规定的两个显示状态之间来回闪烁。 */
+    if (s_animation_level == battery_icon_animation_high_level())
     {
-        s_animation_level = battery_icon_animation_start_level();
+        s_animation_level = battery_icon_animation_low_level();
     }
     else
     {
-        ++s_animation_level;
-        if (s_animation_level < s_level)
-        {
-            s_animation_level = s_level;
-        }
+        s_animation_level = battery_icon_animation_high_level();
     }
     battery_icon_refresh();
 }
 
 void battery_icon_set_level(uint8_t level)
 {
+    uint8_t previous_level = s_level;
+
     /* 电量由业务层提供，但驱动负责将其限制在硬件支持的 0~3 格。 */
     if (level > BATTERY_ICON_MAX_LEVEL)
     {
         level = BATTERY_ICON_MAX_LEVEL;
     }
 
-    /* 保存实际电量，并修正动画起点，防止动画短暂低于实际电量。 */
+    /* 保存显示格数；档位变化时从该档位动画的高亮帧开始。 */
     s_level = level;
-    if (s_level >= BATTERY_ICON_MAX_LEVEL)
+    if ((s_charging != 0U) && (previous_level != s_level))
     {
-        s_animation_level = BATTERY_ICON_MAX_LEVEL;
-    }
-    else if (s_animation_level < s_level)
-    {
-        s_animation_level = s_level;
-    }
-    else if (s_animation_level == 0U)
-    {
-        s_animation_level = battery_icon_animation_start_level();
+        s_animation_level = battery_icon_animation_high_level();
+        s_last_animation_tick = HAL_GetTick();
     }
     battery_icon_refresh();
 }
@@ -147,13 +150,23 @@ uint8_t battery_icon_get_level(void)
 
 void battery_icon_set_charging(uint8_t charging)
 {
-    /* 将任意非零输入统一转换为 1，便于调用方直接传入 GPIO/状态量。 */
-    s_charging = (charging != 0U) ? 1U : 0U;
-    if (s_charging != 0U)
+    uint8_t next_charging = (charging != 0U) ? 1U : 0U;
+
+    /* 将任意非零输入统一转换为 1；相同状态重复上报时不重置动画。 */
+    if (next_charging != s_charging)
     {
-        /* 每次开始充电都从当前实际电量重新开始动画。 */
-        s_animation_level = battery_icon_animation_start_level();
-        s_last_animation_tick = HAL_GetTick();
+        s_charging = next_charging;
+        if (s_charging != 0U)
+        {
+            /* 每次开始充电都从当前档位的高亮帧重新开始动画。 */
+            s_animation_level = battery_icon_animation_high_level();
+            s_last_animation_tick = HAL_GetTick();
+        }
+        else
+        {
+            /* 停止充电后立即恢复静态电量图标。 */
+            s_animation_level = s_level;
+        }
     }
     battery_icon_refresh();
 }

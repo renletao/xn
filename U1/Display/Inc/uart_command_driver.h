@@ -12,7 +12,7 @@
 #define UART_COMMAND_CHARGING_STATUS_LENGTH 7U
 #define UART_COMMAND_CHARGING_OFF  0x00U
 #define UART_COMMAND_CHARGING_ON   0x01U
-#define UART_COMMAND_BATTERY_MAX_PERCENT 100U
+#define UART_COMMAND_BATTERY_MAX_LEVEL 3U
 #define UART_COMMAND_STATUS_POLL_PERIOD_MS 1000U
 
 /* 压力泵控制命令；目标压力使用 Pa 的 uint32_t 小端格式。 */
@@ -55,7 +55,7 @@ void uart_command_scan(void);
 /* 读取并清除最近一次有效的 CMD=0x02 数据；1=有新数据，0=暂无。
  * 返回中的压力泵状态已同步到 uart_command_is_pump_running()。 */
 uint8_t uart_command_take_charging_status(uint8_t *charging,
-                                           uint8_t *battery_percent,
+                                           uint8_t *battery_level,
                                            uint32_t *pressure_pa);
 
 /* 提交启动/暂停压力泵请求；实际状态由 uart_control_task() 的返回帧确认。 */
