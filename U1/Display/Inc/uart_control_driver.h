@@ -19,6 +19,8 @@ typedef enum
 
 /* 统一初始化半双工底层、协议解析器和事务控制状态。 */
 void uart_control_init(void);
+void uart_control_suspend(void);
+void uart_control_resume(void);
 /* 主循环任务：非阻塞处理完整返回帧和100ms超时。 */
 void uart_control_task(void);
 /* USART1中断入口调用。 */

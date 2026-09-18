@@ -40,6 +40,8 @@ extern volatile ADC_U1_DataTypeDef g_adc_data;
 
 /** 初始化 ADC、模拟输入引脚，并执行一次 ADC 校准。 */
 void adc_init(void);
+void adc_suspend(void);
+void adc_resume(void);
 /** 周期任务入口；函数可在主循环中高频调用，内部自动限制为 100 ms 执行一次。 */
 void adc_task_100ms(void);
 /** 读取指定 ADC 通道的一次原始转换结果。 */

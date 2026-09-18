@@ -25,6 +25,11 @@
 #define UART_COMMAND_PUMP_STOPPED 0x00U
 #define UART_COMMAND_PUMP_RUNNING 0x01U
 #define UART_COMMAND_PUMP_ERROR   0x02U
+#define UART_COMMAND_SLEEP        0x05U
+#define UART_COMMAND_SLEEP_RESPONSE_LENGTH 1U
+#define UART_COMMAND_SLEEP_READY  0x00U
+#define UART_COMMAND_SLEEP_BUSY   0x01U
+#define UART_COMMAND_SLEEP_ERROR  0x02U
 
 /* 与模式指示灯枚举保持一致。 */
 #define UART_COMMAND_MODE_RAFT    0x00U
@@ -56,6 +61,8 @@ uint8_t uart_command_take_charging_status(uint8_t *charging,
 /* 提交启动/暂停压力泵请求；实际状态由 uart_control_task() 的返回帧确认。 */
 uint8_t uart_command_start_pump(uint32_t target_pressure_pa, uint8_t mode);
 uint8_t uart_command_pause_pump(void);
+uint8_t uart_command_request_sleep(void);
+uint8_t uart_command_sleep_in_progress(void);
 
 /* S1 短按先查询 U2 当前泵状态，再提交启动/暂停切换；
  * 1=已提交查询或复用了进行中的查询，0=串口被其他命令占用。 */

@@ -401,6 +401,11 @@
               <FilePath>..\Src\main.c</FilePath>
             </File>
             <File>
+              <FileName>power_manager.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Src\power_manager.c</FilePath>
+            </File>
+            <File>
               <FileName>py32f002b_it.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Src\py32f002b_it.c</FilePath>
@@ -409,6 +414,11 @@
               <FileName>py32_u1_hw_config.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\Inc\py32_u1_hw_config.h</FilePath>
+            </File>
+            <File>
+              <FileName>power_manager.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Inc\power_manager.h</FilePath>
             </File>
             <File>
               <FileName>key_driver.h</FileName>

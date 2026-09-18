@@ -91,6 +91,12 @@ static uint8_t uart_command_validate_response(uint8_t cmd,
                    (payload[0] <= UART_COMMAND_PUMP_ERROR);
         }
 
+        if (cmd == UART_COMMAND_SLEEP)
+        {
+            return (length == UART_COMMAND_SLEEP_RESPONSE_LENGTH) &&
+                   (payload[0] <= UART_COMMAND_SLEEP_ERROR);
+        }
+
         /* 未实现的命令先按协议层合法帧交给上层，便于后续扩展。 */
         return 1U;
     }
@@ -128,6 +134,16 @@ void uart_control_init(void)
     {
         s_response_payload[index] = 0U;
     }
+}
+
+void uart_control_suspend(void)
+{
+    uart_halfduplex_suspend();
+}
+
+void uart_control_resume(void)
+{
+    uart_control_init();
 }
 
 void uart_control_irq_handler(void)
@@ -348,6 +364,11 @@ void uart_command_scan(void)
 {
     uint32_t now = HAL_GetTick();
 
+    if (s_expected_cmd == UART_COMMAND_SLEEP)
+    {
+        return;
+    }
+
     /* S3 手动命令或其他事务正在等待返回时，延后本次状态查询。 */
     if (uart_control_is_busy() != 0U)
     {
@@ -409,6 +430,16 @@ uint8_t uart_command_start_pump(uint32_t target_pressure_pa, uint8_t mode)
 uint8_t uart_command_pause_pump(void)
 {
     return uart_control_request(UART_COMMAND_PUMP_PAUSE, 0, 0U);
+}
+
+uint8_t uart_command_request_sleep(void)
+{
+    return uart_control_request(UART_COMMAND_SLEEP, 0, 0U);
+}
+
+uint8_t uart_command_sleep_in_progress(void)
+{
+    return (s_expected_cmd == UART_COMMAND_SLEEP) ? 1U : 0U;
 }
 
 uint8_t uart_command_toggle_pump(uint32_t target_pressure_pa, uint8_t mode)

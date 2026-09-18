@@ -12,6 +12,7 @@
 #include "uart_halfduplex_driver.h"
 #include "uart_protocol_driver.h"
 #include "wf183d.h"
+#include "power_manager.h"
 
 /*
  * CMD=0x02 的电量模拟值：80%。电池尚未接入，变量放在全局作用域，便于
@@ -81,6 +82,16 @@ void uart_command_init(void)
   /* 先初始化协议状态，再启动底层接收中断，避免中断使用未初始化状态。 */
   uart_protocol_init();
   uart_halfduplex_init();
+}
+
+void uart_command_suspend(void)
+{
+  uart_halfduplex_suspend();
+}
+
+void uart_command_resume(void)
+{
+  uart_command_init();
 }
 
 void uart_command_irq_handler(void)
@@ -213,5 +224,25 @@ void uart_command_task(void)
     response_payload[0] = status;
     (void)uart_protocol_send(UART_COMMAND_PUMP_PAUSE, response_payload,
                              UART_COMMAND_PUMP_RESPONSE_LENGTH);
+    return;
+  }
+
+  if ((command == UART_COMMAND_SLEEP) && (length == 0U))
+  {
+    uint8_t status = UART_COMMAND_SLEEP_BUSY;
+
+    /* Reply first; U1 must receive a complete ACK before U2 stops UART. */
+    if (power_manager_can_sleep() != 0U)
+    {
+      status = UART_COMMAND_SLEEP_READY;
+    }
+    response_payload[0] = status;
+    if (uart_protocol_send(UART_COMMAND_SLEEP, response_payload, 1U) >= 0)
+    {
+      if (status == UART_COMMAND_SLEEP_READY)
+      {
+        power_manager_commit_sleep();
+      }
+    }
   }
 }

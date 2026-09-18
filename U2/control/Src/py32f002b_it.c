@@ -102,4 +102,10 @@ void USART1_IRQHandler(void)
   uart_command_irq_handler();
 }
 
+void EXTI4_15_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_5);
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_7);
+}
+
 /************************ (C) COPYRIGHT Puya *****END OF FILE******************/

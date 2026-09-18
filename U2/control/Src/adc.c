@@ -71,6 +71,26 @@ void adc_init(void)
   }
 }
 
+void adc_suspend(void)
+{
+  GPIO_InitTypeDef gpio_init = {0};
+
+  (void)HAL_ADC_Stop(&hadc1);
+  (void)HAL_ADC_DeInit(&hadc1);
+  gpio_init.Mode = GPIO_MODE_ANALOG;
+  gpio_init.Pull = GPIO_NOPULL;
+  gpio_init.Pin = (uint32_t)(PIN_BAT_ADC_PIN | PIN_CURR_ADC_PIN);
+  HAL_GPIO_Init(PIN_BAT_ADC_PORT, &gpio_init);
+  gpio_init.Pin = (uint32_t)(PIN_MOTO_ADC_PIN | PIN_12V_ADC_PIN);
+  HAL_GPIO_Init(PIN_MOTO_ADC_PORT, &gpio_init);
+  __HAL_RCC_ADC_CLK_DISABLE();
+}
+
+void adc_resume(void)
+{
+  adc_init();
+}
+
 static uint16_t adc_convert(uint32_t channel)
 {
   ADC_ChannelConfTypeDef channel_config = {0};

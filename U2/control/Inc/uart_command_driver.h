@@ -26,6 +26,11 @@
 #define UART_COMMAND_PUMP_STOPPED             0x00U
 #define UART_COMMAND_PUMP_RUNNING             0x01U
 #define UART_COMMAND_PUMP_ERROR               0x02U
+#define UART_COMMAND_SLEEP                    0x05U
+#define UART_COMMAND_SLEEP_RESPONSE_LENGTH    1U
+#define UART_COMMAND_SLEEP_READY              0x00U
+#define UART_COMMAND_SLEEP_BUSY               0x01U
+#define UART_COMMAND_SLEEP_ERROR              0x02U
 #define UART_COMMAND_MODE_RAFT                 0x00U
 #define UART_COMMAND_MODE_AIR_BED              0x01U
 #define UART_COMMAND_MODE_TIRE                 0x02U
@@ -44,6 +49,8 @@ extern volatile uint8_t g_uart_pump_running;
 
 /* 初始化 U2 半双工底层和 AA55 协议层。 */
 void uart_command_init(void);
+void uart_command_suspend(void);
+void uart_command_resume(void);
 /* 主循环处理完整帧、超时半帧，并在有效命令后返回 ACK。 */
 void uart_command_task(void);
 /* 根据实时去皮气压、目标气压和模式更新两路压力泵。 */

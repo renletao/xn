@@ -9,6 +9,8 @@
 
 /* 初始化 USART1 和 PA6，并默认进入接收方向。 */
 void uart_halfduplex_init(void);
+void uart_halfduplex_suspend(void);
+void uart_halfduplex_resume(void);
 /* 切换到发送方向；发送数据前调用。 */
 void uart_halfduplex_set_tx(void);
 /* 切换到接收方向；发送完成后调用。 */

@@ -56,6 +56,7 @@ extern "C" {
 /* Exported variables prototypes ---------------------------------------------*/
 /* 应用错误处理入口，供断言或其他模块调用。 */
 void APP_ErrorHandler(void);
+void APP_SystemClockConfig(void);
 
 #ifdef __cplusplus
 }

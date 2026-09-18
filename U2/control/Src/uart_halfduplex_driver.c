@@ -78,6 +78,33 @@ void uart_halfduplex_init(void)
   HAL_NVIC_EnableIRQ(USART1_IRQn);
 }
 
+void uart_halfduplex_suspend(void)
+{
+  GPIO_InitTypeDef gpio = {0};
+
+  if (uart_initialized == 0U)
+  {
+    return;
+  }
+  (void)HAL_UART_AbortReceive(&uart_handle);
+  __HAL_UART_RESET_HANDLE_STATE(&uart_handle);
+  HAL_NVIC_DisableIRQ(USART1_IRQn);
+  __HAL_RCC_USART1_CLK_DISABLE();
+  gpio.Pin = (uint32_t)PIN_DISP_TX_PIN;
+  gpio.Mode = GPIO_MODE_ANALOG;
+  gpio.Pull = GPIO_NOPULL;
+  gpio.Speed = GPIO_SPEED_FREQ_LOW;
+  gpio.Alternate = 0U;
+  HAL_GPIO_Init(PIN_DISP_TX_PORT, &gpio);
+  uart_tx_active = 0U;
+  uart_initialized = 0U;
+}
+
+void uart_halfduplex_resume(void)
+{
+  uart_halfduplex_init();
+}
+
 void uart_halfduplex_set_tx(void)
 {
   if ((uart_initialized != 0U) && (uart_tx_active == 0U))

@@ -103,6 +103,28 @@ void moto_init(void)
   moto_stop();
 }
 
+void moto_suspend(void)
+{
+  GPIO_InitTypeDef gpio_init = {0};
+
+  moto_stop();
+  (void)HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+  (void)HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+  (void)HAL_TIM_PWM_DeInit(&htim1);
+  __HAL_RCC_TIM1_CLK_DISABLE();
+  gpio_init.Pin = (uint32_t)(PIN_MOTO1_PIN | PIN_MOTO2_PIN);
+  gpio_init.Mode = GPIO_MODE_ANALOG;
+  gpio_init.Pull = GPIO_NOPULL;
+  gpio_init.Speed = GPIO_SPEED_FREQ_LOW;
+  gpio_init.Alternate = 0U;
+  HAL_GPIO_Init(PIN_MOTO1_PORT, &gpio_init);
+}
+
+void moto_resume(void)
+{
+  moto_init();
+}
+
 void moto_set_moto1_pwm(uint16_t duty)
 {
   /* 写入 MOTO1 比较寄存器；超限占空比会被限制到最大值。 */

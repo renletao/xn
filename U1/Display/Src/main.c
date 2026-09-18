@@ -4,8 +4,9 @@
 #include "display_control_driver.h"
 #include "option_bytes_driver.h"
 #include "uart_command_driver.h"
+#include "power_manager.h"
 
-static void app_system_clock_config(void);
+void app_system_clock_config(void);
 
 int main(void)
 {
@@ -31,6 +32,7 @@ int main(void)
     /* 初始化 PB4 单线半双工串口，主控默认处于接收方向。 */
     /* 统一初始化PB4半双工、AA55协议和通信事务锁。 */
     uart_control_init();
+    power_manager_init();
 		
 		
 // led_all_off();
@@ -54,10 +56,11 @@ int main(void)
         uart_control_task();
         /* 每秒发起一次充电状态、电量、气压和压力泵状态查询；不阻塞主循环。 */
         uart_command_scan();
+        power_manager_task();
     }
 }
 
-static void app_system_clock_config(void)
+void app_system_clock_config(void)
 {
     RCC_OscInitTypeDef oscillator = {0};
     RCC_ClkInitTypeDef clocks = {0};

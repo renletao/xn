@@ -45,6 +45,7 @@ extern volatile uint8_t  g_wf183d_state;
 extern volatile uint8_t  g_wf183d_fault_count;
 
 void wf183d_init(void);
+void wf183d_resume(void);
 /* Perform the ten-sample startup tare before normal application tasks run. */
 void wf183d_startup_tare(void);
 void wf183d_task(void);

@@ -105,6 +105,31 @@ void soft_uart_init(void)
   soft_uart_initialized = 1U;
 }
 
+void soft_uart_suspend(void)
+{
+  GPIO_InitTypeDef gpio = {0};
+
+  if (soft_uart_initialized == 0U)
+  {
+    return;
+  }
+  (void)HAL_TIM_Base_Stop(&htim14);
+  (void)HAL_TIM_Base_DeInit(&htim14);
+  __HAL_RCC_TIM14_CLK_DISABLE();
+  gpio.Mode = GPIO_MODE_ANALOG;
+  gpio.Pull = GPIO_NOPULL;
+  gpio.Speed = GPIO_SPEED_FREQ_LOW;
+  gpio.Alternate = 0U;
+  gpio.Pin = (uint32_t)(PIN_SENSOR_TX_PIN | PIN_SENSOR_RX_PIN);
+  HAL_GPIO_Init(PIN_SENSOR_TX_PORT, &gpio);
+  soft_uart_initialized = 0U;
+}
+
+void soft_uart_resume(void)
+{
+  soft_uart_init();
+}
+
 int32_t soft_uart_send_byte(uint8_t data, uint32_t timeout_ms)
 {
   uint32_t start_ms;

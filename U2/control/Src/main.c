@@ -8,9 +8,10 @@
 #include "wf183d.h"
 #include "uart_command_driver.h"
 #include "usbin.h"
+#include "power_manager.h"
 
 /* 主时钟配置只在 main() 中调用一次，因此定义为本文件私有函数。 */
-static void APP_SystemClockConfig(void);
+void APP_SystemClockConfig(void);
 
 int main(void)
 {
@@ -50,6 +51,7 @@ int main(void)
 
   /* 初始化充电策略：默认允许充电，但 USB 未插入时保持 IP2326 关闭。 */
   charge_init();
+  power_manager_init();
 
   while (1)
   {
@@ -77,10 +79,11 @@ int main(void)
 
     /* 检查 100 ms 采样周期，到了时间才读取四路 ADC 并更新 g_adc_data。 */
     adc_task_100ms();
+    power_manager_task();
   }
 }
 
-static void APP_SystemClockConfig(void)
+void APP_SystemClockConfig(void)
 {
   /* 打开内部高速时钟 HSI，并等待硬件报告稳定。 */
   LL_RCC_HSI_Enable();

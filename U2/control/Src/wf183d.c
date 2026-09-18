@@ -221,6 +221,14 @@ void wf183d_init(void)
   wf183d_tare_sample_max = 0U;
 }
 
+void wf183d_resume(void)
+{
+  /* Preserve the startup tare; only restart the periodic sample schedule. */
+  wf183d_next_sample_tick = HAL_GetTick() + WF183D_SAMPLE_PERIOD_MS;
+  wf183d_started = 1U;
+  g_wf183d_state = WF183D_STATE_TIMEOUT;
+}
+
 void wf183d_startup_tare(void)
 {
   uint32_t pressure;

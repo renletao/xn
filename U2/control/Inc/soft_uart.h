@@ -20,6 +20,8 @@ extern "C" {
 
 /** 初始化 PB4、PB5 和 TIM14，串口空闲状态为高电平。 */
 void soft_uart_init(void);
+void soft_uart_suspend(void);
+void soft_uart_resume(void);
 /** 阻塞发送数据，成功返回发送字节数，失败返回 -1。timeout_ms 为 0 表示不超时。 */
 int32_t soft_uart_send(const uint8_t *data, uint16_t length,
                        uint32_t timeout_ms);

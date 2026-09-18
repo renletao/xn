@@ -8,6 +8,7 @@
 #include "option_bytes_driver.h"
 #include "led_driver.h"
 #include "uart_command_driver.h"
+#include "power_manager.h"
 
 /* 保存尚未被上层业务读取的按键标志，避免事件在模块之间传递时丢失。 */
 static uint32_t s_key_flags;
@@ -52,6 +53,10 @@ void display_control_scan(void)
      */
     /* S1 短按切换压力泵，长按切换 U1 本地显示状态。 */
     s1_events = key_get_event(KEY_S1);
+    if (power_manager_suppress_s1_events() != 0U)
+    {
+        s1_events = KEY_EVENT_NONE;
+    }
     if ((s1_events & KEY_EVENT_SHORT_RELEASE) != 0U)
     {
         s_key_flags |= DISPLAY_KEY_FLAG_S1;
@@ -63,8 +68,16 @@ void display_control_scan(void)
     if ((s1_events & KEY_EVENT_LONG_PRESS) != 0U)
     {
         s_key_flags |= DISPLAY_KEY_FLAG_S1;
-        /* 只改变输出开关，不清除显示缓存，便于再次长按后恢复原内容。 */
-        led_set_enabled((led_is_enabled() == 0U) ? 1U : 0U);
+        if (led_is_enabled() != 0U)
+        {
+            /* 关闭显示后由低功耗管理器与 U2 完成休眠握手。 */
+            led_set_enabled(0U);
+            power_manager_request_sleep();
+        }
+        else
+        {
+            led_set_enabled(1U);
+        }
     }
 
     /* S5 短按：皮筏艇、充气床、轮胎三个模式依次循环。 */

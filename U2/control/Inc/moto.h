@@ -19,6 +19,8 @@ extern "C" {
 
 /** 初始化 TIM1、PA0/PA1 复用，并以停止状态启动 PWM。 */
 void moto_init(void);
+void moto_suspend(void);
+void moto_resume(void);
 /** 设置 MOTO1（抵压泵）的比较值，占空比超过上限时自动限幅。 */
 void moto_set_moto1_pwm(uint16_t duty);
 /** 设置 MOTO2（高压泵）的比较值，占空比超过上限时自动限幅。 */

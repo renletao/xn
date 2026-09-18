@@ -33,6 +33,7 @@
 #include "py32f0xx_hal.h"
 #include "py32f002b_it.h"
 #include "uart_control_driver.h"
+#include "power_manager.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* Private typedef -----------------------------------------------------------*/
@@ -107,6 +108,16 @@ void SysTick_Handler(void)
 void USART1_IRQHandler(void)
 {
   uart_control_irq_handler();
+}
+
+void EXTI0_1_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+}
+
+void EXTI4_15_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_5);
 }
 
 /************************ (C) COPYRIGHT Puya *****END OF FILE******************/
