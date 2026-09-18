@@ -17,6 +17,7 @@
 #define HAL_TIM_MODULE_ENABLED
 #define HAL_UART_MODULE_ENABLED
 #define HAL_RCC_MODULE_ENABLED
+#define HAL_PWR_MODULE_ENABLED
 #define HAL_FLASH_MODULE_ENABLED
 
 #define USE_RTOS                         0U
@@ -57,6 +58,7 @@
    this configuration file, so the common HAL definitions must be available. */
 #include "py32f002b_hal_def.h"
 #include "py32f002b_hal_rcc.h"
+#include "py32f002b_hal_pwr.h"
 #include "py32f002b_hal_flash.h"
 #include "py32f002b_hal_gpio.h"
 #include "py32f002b_hal_adc.h"

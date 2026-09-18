@@ -30,6 +30,7 @@
 #define HAL_GPIO_MODULE_ENABLED
 #define HAL_FLASH_MODULE_ENABLED
 #define HAL_RCC_MODULE_ENABLED
+#define HAL_PWR_MODULE_ENABLED
 #define HAL_UART_MODULE_ENABLED
 
 /* HAL RCC 计算系统和外设时钟时使用的振荡器标称值。 */
@@ -59,6 +60,7 @@
 #include "py32f002b_hal_cortex.h"
 #include "py32f002b_hal_gpio.h"
 #include "py32f002b_hal_rcc.h"
+#include "py32f002b_hal_pwr.h"
 #include "py32f002b_hal_flash.h"
 #include "py32f002b_hal_uart.h"
 
