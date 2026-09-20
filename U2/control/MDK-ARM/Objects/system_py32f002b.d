@@ -1,9 +1,0 @@
-.\objects\system_py32f002b.o: ..\Src\system_py32f002b.c
-.\objects\system_py32f002b.o: ..\Drivers\CMSIS\Device\PY32F0xx\Include\py32f0xx.h
-.\objects\system_py32f002b.o: ..\Drivers\CMSIS\Device\PY32F0xx\Include\py32f002bx5.h
-.\objects\system_py32f002b.o: ..\Drivers\CMSIS\Include\core_cm0plus.h
-.\objects\system_py32f002b.o: D:\APP\keil\ARM\ARMCC\Bin\..\include\stdint.h
-.\objects\system_py32f002b.o: ..\Drivers\CMSIS\Include\core_cmInstr.h
-.\objects\system_py32f002b.o: ..\Drivers\CMSIS\Include\cmsis_armcc.h
-.\objects\system_py32f002b.o: ..\Drivers\CMSIS\Include\core_cmFunc.h
-.\objects\system_py32f002b.o: ..\Drivers\CMSIS\Device\PY32F0xx\Include\system_py32f0xx.h

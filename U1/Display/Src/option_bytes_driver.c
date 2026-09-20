@@ -4,6 +4,8 @@
 #include "py32_u1_hw_config.h"
 #include "key_driver.h"
 
+#define OPTION_BYTES_PROGRAMMING_WINDOW_MS  5000U
+
 /*
  * 根据目标模式更新 Option Byte。
  *
@@ -85,11 +87,22 @@ static uint8_t option_bytes_is_s1_held(void)
 
 void option_bytes_boot_check(void)
 {
+    FLASH_OBProgramInitTypeDef ob = {0};
+
     /*
-     * 按住 S1 时保留当前调试/恢复配置，方便重新下载程序；
-     * 未按住 S1 时才尝试切换到正常显示模式。
+     * 正常显示配置已经生效时直接启动，不增加固定的上电延时。
+     * 只有 PB6 仍为 SWD（或配置为其他非显示模式）时，才为烧录器
+     * 保留 5 秒连接窗口。窗口结束后按住 S1 可继续保留当前配置，
+     * 否则切回 PC0=SWD、PB6=GPIO 的正常显示配置。
      */
-    /* S1 按下时不切换 GPIO/SWD，给烧录工具保留进入程序的机会。 */
+    HAL_FLASH_OBGetConfig(&ob);
+    if ((ob.USERConfig & OB_USER_SWD_NRST_MODE) == OB_SWD_PC0_GPIO_PB6)
+    {
+        return;
+    }
+
+    HAL_Delay(OPTION_BYTES_PROGRAMMING_WINDOW_MS);
+
     if (option_bytes_is_s1_held() == 0U)
     {
         option_bytes_configure_if_needed(OB_SWD_PC0_GPIO_PB6);

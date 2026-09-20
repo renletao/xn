@@ -19,10 +19,7 @@ int main(void)
     /* 使用 HAL 配置 24 MHz HSI 系统时钟。 */
     app_system_clock_config();
 
-    /* 上电稳定等待，避免刚复位时立即切换复用引脚。 */
-    HAL_Delay(5000U);
-
-    /* 读取并比较 Option Byte，仅在当前模式不一致时才更新。 */
+    /* 检查 Option Byte；仅处于烧录配置时保留 5 秒下载窗口。 */
     option_bytes_boot_check();
 
     /* 初始化按键、LED 和显示控制模块。 */

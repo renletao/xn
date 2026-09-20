@@ -39,12 +39,12 @@ static const uint8_t s_digit_code[10] =
     PRESSURE_SEG_D | PRESSURE_SEG_F | PRESSURE_SEG_G
 };
 
-static uint32_t s_actual_base_cbar;
-static uint32_t s_target_base_cbar;
+static uint32_t s_actual_pressure_pa;
+static uint32_t s_target_pressure_pa;
 
-static uint32_t pressure_input_to_base(uint32_t value, UnitLedUnit_t unit)
+static uint32_t pressure_input_to_pa(uint32_t value, UnitLedUnit_t unit)
 {
-    /* 输入值是当前单位数值放大 100 倍后的整数，转换后统一保存为 0.01 BAR。 */
+    /* 输入值是当前单位数值放大 100 倍后的整数，转换后统一保存为 Pa。 */
     /* 输入参数按 100 倍放大，999.00 对应 99900。 */
     if (value > PRESSURE_INPUT_MAX)
     {
@@ -54,71 +54,69 @@ static uint32_t pressure_input_to_base(uint32_t value, UnitLedUnit_t unit)
     if (unit == UNIT_LED_BAR)
     {
         /* 所有单位输入统一放大 100 倍：259 表示 2.59 BAR。 */
-        return (uint32_t)value;
+        return value * 1000U;
     }
     if (unit == UNIT_LED_PSI)
     {
-        /* value 为 PSI 的百分之一，换算为内部 0.01 BAR。 */
-        return (uint32_t)(((uint64_t)value * 689476ULL + 5000000ULL) /
+        /* 0.01 PSI = 68.9475729 Pa。 */
+        return (uint32_t)(((uint64_t)value * 689475729ULL + 5000000ULL) /
                           10000000ULL);
     }
     if (unit == UNIT_LED_KPA)
     {
-        /* value 为 kPa 的百分之一；1 kPa = 1 个 0.01 BAR。 */
-        return ((uint32_t)value + 50U) / 100U;
+        /* 0.01 kPa = 10 Pa。 */
+        return value * 10U;
     }
 
     /* kgf/cm2 显示两位小数：255 表示 2.55 kgf/cm2。 */
-    return (uint32_t)(((uint64_t)value * 980665ULL + 500000ULL) /
-                      1000000ULL);
+    return (uint32_t)(((uint64_t)value * 980665ULL + 500ULL) / 1000ULL);
 }
 
-static uint32_t pressure_unit_hundredths(uint32_t base_cbar,
+static uint32_t pressure_unit_hundredths(uint32_t pressure_pa,
                                          UnitLedUnit_t unit)
 {
     /* 返回当前单位的百分之一，作为统一的自适应显示输入。 */
     if (unit == UNIT_LED_BAR)
     {
-        /* 0.01 BAR 本身就是 BAR 的百分之一。 */
-        return base_cbar;
+        /* 0.01 BAR = 1000 Pa。 */
+        return (uint32_t)(((uint64_t)pressure_pa + 500ULL) / 1000ULL);
     }
     if (unit == UNIT_LED_PSI)
     {
-        /* cBAR -> PSI 的百分之一，四舍五入。 */
-        return (uint32_t)(((uint64_t)base_cbar * 145038ULL + 5000ULL) /
-                          10000ULL);
+        /* Pa -> PSI 的百分之一，四舍五入。 */
+        return (uint32_t)(((uint64_t)pressure_pa * 10000000ULL +
+                           344737864ULL) / 689475729ULL);
     }
     if (unit == UNIT_LED_KPA)
     {
-        /* 0.01 BAR = 1 kPa，乘 100 得到 kPa 的百分之一。 */
-        return base_cbar * 100U;
+        /* 0.01 kPa = 10 Pa。 */
+        return (uint32_t)(((uint64_t)pressure_pa + 5ULL) / 10ULL);
     }
 
-    /* cBAR -> kgf/cm2 的百分之一，四舍五入。 */
-    return (uint32_t)(((uint64_t)base_cbar * 1019716ULL + 500000ULL) /
-                      1000000ULL);
+    /* Pa -> kgf/cm2 的百分之一，四舍五入。 */
+    return (uint32_t)(((uint64_t)pressure_pa * 1000ULL + 490332ULL) /
+                      980665ULL);
 }
 
-static uint32_t pressure_unit_hundredths_to_base(uint32_t value,
-                                                 UnitLedUnit_t unit)
+static uint32_t pressure_unit_hundredths_to_pa(uint32_t value,
+                                               UnitLedUnit_t unit)
 {
-    /* 将当前单位的百分之一转换回内部 0.01 BAR。 */
+    /* 将当前单位的百分之一转换回 Pa。 */
     if (unit == UNIT_LED_BAR)
     {
-        return value;
+        return value * 1000U;
     }
     if (unit == UNIT_LED_PSI)
     {
-        return (uint32_t)(((uint64_t)value * 689476ULL + 5000000ULL) /
+        return (uint32_t)(((uint64_t)value * 689475729ULL + 5000000ULL) /
                           10000000ULL);
     }
     if (unit == UNIT_LED_KPA)
     {
-        return (value + 50U) / 100U;
+        return value * 10U;
     }
 
-    return (uint32_t)(((uint64_t)value * 980665ULL + 500000ULL) /
-                      1000000ULL);
+    return (uint32_t)(((uint64_t)value * 980665ULL + 500ULL) / 1000ULL);
 }
 
 static uint16_t pressure_hundredths_to_display(uint32_t hundredths)
@@ -192,8 +190,8 @@ static void pressure_refresh_frame(void)
     int8_t target_decimal_position;
     UnitLedUnit_t unit = unit_led_get_current();
 
-    actual_hundredths = pressure_unit_hundredths(s_actual_base_cbar, unit);
-    target_hundredths = pressure_unit_hundredths(s_target_base_cbar, unit);
+    actual_hundredths = pressure_unit_hundredths(s_actual_pressure_pa, unit);
+    target_hundredths = pressure_unit_hundredths(s_target_pressure_pa, unit);
     actual_value = pressure_hundredths_to_display(actual_hundredths);
     target_value = pressure_hundredths_to_display(target_hundredths);
     actual_decimal_position = pressure_decimal_position(actual_hundredths);
@@ -217,62 +215,53 @@ static void pressure_refresh_frame(void)
 void pressure_display_init(void)
 {
     /* 上电默认实际值和目标值均为 000。 */
-    s_actual_base_cbar = 0U;
-    s_target_base_cbar = 0U;
+    s_actual_pressure_pa = 0U;
+    s_target_pressure_pa = 0U;
     pressure_refresh_frame();
 }
 
 void pressure_display_set_actual(uint32_t value)
 {
-    s_actual_base_cbar = pressure_input_to_base(value, unit_led_get_current());
+    s_actual_pressure_pa = pressure_input_to_pa(value, unit_led_get_current());
     pressure_refresh_frame();
 }
 
 void pressure_display_set_actual_pa(uint32_t pressure_pa)
 {
-    uint32_t base_cbar = pressure_pa / 1000U;
-
-    /* 0.01 BAR 等于 1000 Pa，采用四舍五入后保存为内部基准单位。 */
-    if (((pressure_pa % 1000U) >= 500U) && (base_cbar < 0xFFFFFFFFUL))
-    {
-        ++base_cbar;
-    }
-
-    s_actual_base_cbar = base_cbar;
+    s_actual_pressure_pa = pressure_pa;
     pressure_refresh_frame();
 }
 
 uint16_t pressure_display_get_actual(void)
 {
     return pressure_hundredths_to_display(
-        pressure_unit_hundredths(s_actual_base_cbar, unit_led_get_current()));
+        pressure_unit_hundredths(s_actual_pressure_pa, unit_led_get_current()));
 }
 
 void pressure_display_set_target(uint32_t value)
 {
-    s_target_base_cbar = pressure_input_to_base(value, unit_led_get_current());
+    s_target_pressure_pa = pressure_input_to_pa(value, unit_led_get_current());
     pressure_refresh_frame();
 }
 
 uint16_t pressure_display_get_target(void)
 {
     return pressure_hundredths_to_display(
-        pressure_unit_hundredths(s_target_base_cbar, unit_led_get_current()));
+        pressure_unit_hundredths(s_target_pressure_pa, unit_led_get_current()));
 }
 
 uint32_t pressure_display_get_target_pa(void)
 {
-    /* 内部基准为 0.01 BAR，1 个基准单位等于 1000 Pa。 */
-    return s_target_base_cbar * 1000U;
+    return s_target_pressure_pa;
 }
 
 void pressure_display_target_increase(void)
 {
     UnitLedUnit_t unit = unit_led_get_current();
-    uint32_t hundredths = pressure_unit_hundredths(s_target_base_cbar, unit);
+    uint32_t hundredths = pressure_unit_hundredths(s_target_pressure_pa, unit);
 
-    /* 显示已到 999 时保持不变，不允许继续增加。 */
-    if (pressure_hundredths_to_display(hundredths) < PRESSURE_DISPLAY_MAX)
+    /* 当前单位已到 999.00 时保持不变；9.99 和 99.9 仍可跨档增加。 */
+    if (hundredths < PRESSURE_INPUT_MAX)
     {
         /* 按当前显示精度增加一个最小步进，再换算回内部单位。 */
         if (hundredths <= 999U)
@@ -287,7 +276,11 @@ void pressure_display_target_increase(void)
         {
             hundredths += 100U;
         }
-        s_target_base_cbar = pressure_unit_hundredths_to_base(hundredths, unit);
+        if (hundredths > PRESSURE_INPUT_MAX)
+        {
+            hundredths = PRESSURE_INPUT_MAX;
+        }
+        s_target_pressure_pa = pressure_unit_hundredths_to_pa(hundredths, unit);
         pressure_refresh_frame();
     }
 }
@@ -295,10 +288,10 @@ void pressure_display_target_increase(void)
 void pressure_display_target_decrease(void)
 {
     UnitLedUnit_t unit = unit_led_get_current();
-    uint32_t hundredths = pressure_unit_hundredths(s_target_base_cbar, unit);
+    uint32_t hundredths = pressure_unit_hundredths(s_target_pressure_pa, unit);
 
-    /* 显示已到 000 时保持不变，不允许继续减小。 */
-    if (pressure_hundredths_to_display(hundredths) > 0U)
+    /* 当前单位已到 0.00 时保持不变，不允许继续减小。 */
+    if (hundredths > 0U)
     {
         /* 按当前显示精度减少一个最小步进，再换算回内部单位。 */
         if (hundredths <= 999U)
@@ -313,7 +306,7 @@ void pressure_display_target_decrease(void)
         {
             hundredths -= 100U;
         }
-        s_target_base_cbar = pressure_unit_hundredths_to_base(hundredths, unit);
+        s_target_pressure_pa = pressure_unit_hundredths_to_pa(hundredths, unit);
         pressure_refresh_frame();
     }
 }
