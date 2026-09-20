@@ -38,7 +38,7 @@ static void power_gpio_config(GPIO_TypeDef *port, uint16_t pin,
 static void power_config_wake_inputs(void)
 {
   power_gpio_config(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN,
-                    GPIO_MODE_IT_RISING, GPIO_PULLDOWN);
+                    GPIO_MODE_IT_FALLING, GPIO_PULLUP);
   power_gpio_config(PIN_WKUP_PORT, U2_WAKE_LINK_PIN,
                     GPIO_MODE_IT_RISING, GPIO_PULLDOWN);
   __HAL_GPIO_EXTI_CLEAR_IT(U2_WAKE_LOCAL_PIN);
@@ -52,7 +52,7 @@ static void power_config_running_inputs(void)
 {
   HAL_NVIC_DisableIRQ(EXTI4_15_IRQn);
   power_gpio_config(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN,
-                    GPIO_MODE_INPUT, GPIO_PULLDOWN);
+                    GPIO_MODE_INPUT, GPIO_PULLUP);
   power_gpio_config(PIN_WKUP_PORT, U2_WAKE_LINK_PIN,
                     GPIO_MODE_INPUT, GPIO_PULLDOWN);
   __HAL_GPIO_EXTI_CLEAR_IT(U2_WAKE_LOCAL_PIN);
@@ -131,7 +131,7 @@ static void power_enter_stop(void)
   power_config_wake_inputs();
 
   if ((s_wake_flags != 0U) ||
-      (HAL_GPIO_ReadPin(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN) == GPIO_PIN_SET) ||
+      (HAL_GPIO_ReadPin(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN) == GPIO_PIN_RESET) ||
       (HAL_GPIO_ReadPin(PIN_WKUP_PORT, U2_WAKE_LINK_PIN) == GPIO_PIN_SET))
   {
     power_restore(0U);
@@ -143,7 +143,7 @@ static void power_enter_stop(void)
   primask = __get_PRIMASK();
   __disable_irq();
   if ((s_wake_flags != 0U) ||
-      (HAL_GPIO_ReadPin(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN) == GPIO_PIN_SET) ||
+      (HAL_GPIO_ReadPin(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN) == GPIO_PIN_RESET) ||
       (HAL_GPIO_ReadPin(PIN_WKUP_PORT, U2_WAKE_LINK_PIN) == GPIO_PIN_SET))
   {
     if (primask == 0U)

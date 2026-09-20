@@ -73,7 +73,7 @@
 
 #define PIN_USBIN_PORT               PIN_PA5_PORT
 #define PIN_USBIN_PIN                PIN_PA5_PIN
-#define PIN_USBIN_ACTIVE_LEVEL       1U
+#define PIN_USBIN_ACTIVE_LEVEL       0U
 
 #define PIN_DISP_TX_PORT             PIN_PA6_PORT
 #define PIN_DISP_TX_PIN              PIN_PA6_PIN

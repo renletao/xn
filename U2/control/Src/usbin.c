@@ -2,7 +2,7 @@
   * @file    usbin.c
   * @brief   USB 插入检测和 IP2326 使能联动驱动。
   *
-  * PA5 配置为内部下拉输入，高电平表示 USB 插入。驱动把原始电平先放入
+  * PA5 配置为内部上拉输入，低电平表示 USB 插入。驱动把原始电平先放入
   * 候选状态，连续稳定 USBIN_DEBOUNCE_MS 后才更新稳定状态并控制 PA2。
   */
 
@@ -31,12 +31,12 @@ void usbin_init(void)
 {
   GPIO_InitTypeDef gpio_init = {0};
 
-  /* PA5 使用下拉输入，未检测到外部 USB 信号时保持确定的低电平。 */
+  /* PA5 使用上拉输入，未检测到外部 USB 信号时保持确定的高电平。 */
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   gpio_init.Pin = (uint32_t)PIN_USBIN_PIN;
   gpio_init.Mode = GPIO_MODE_INPUT;
-  gpio_init.Pull = GPIO_PULLDOWN;
+  gpio_init.Pull = GPIO_PULLUP;
   gpio_init.Speed = GPIO_SPEED_FREQ_LOW;
   gpio_init.Alternate = 0U;
   HAL_GPIO_Init(PIN_USBIN_PORT, &gpio_init);
