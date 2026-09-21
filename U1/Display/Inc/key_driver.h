@@ -47,6 +47,11 @@ typedef enum
 } KeyEvent_t;
 
 void key_init(void);
+/*
+ * STOP 由 S1 唤醒后，把当前仍按住的 S1 作为已确认按下状态接续计时。
+ * 返回 1 表示唤醒后仍检测到 S1 按下，返回 0 表示已经释放。
+ */
+uint8_t key_prepare_s1_wake(void);
 /* 主循环中持续调用；函数内部按 KEY_SCAN_PERIOD_MS 限制实际采样频率。 */
 void key_scan(void);
 /* 读取指定按键的事件并清空该按键已经报告的事件。 */

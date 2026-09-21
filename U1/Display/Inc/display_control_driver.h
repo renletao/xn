@@ -21,6 +21,9 @@ typedef enum
 /* 初始化所有由应用层统一管理的显示状态模块。 */
 void display_control_init(void);
 
+/* LED GPIO 重新初始化后，恢复压力和电池显示缓存。 */
+void display_control_refresh(void);
+
 /*
  * 主循环中的显示业务入口：
  * - 处理 S1 短按压力泵启动/暂停切换和 S2/S4 目标值调整；

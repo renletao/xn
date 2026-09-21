@@ -4,6 +4,7 @@
 #include "py32f002b_hal_pwr.h"
 #include "key_driver.h"
 #include "led_driver.h"
+#include "display_control_driver.h"
 #include "uart_command_driver.h"
 #include "uart_control_driver.h"
 
@@ -120,6 +121,7 @@ static uint8_t power_enter_stop(void)
         power_config_running_inputs();
         key_init();
         led_init();
+        display_control_refresh();
         led_set_enabled(0U);
         uart_control_resume();
         return 0U;
@@ -142,6 +144,7 @@ static uint8_t power_enter_stop(void)
         power_config_running_inputs();
         key_init();
         led_init();
+        display_control_refresh();
         led_set_enabled(0U);
         uart_control_resume();
         return 0U;
@@ -163,6 +166,7 @@ static uint8_t power_enter_stop(void)
     power_config_running_inputs();
     key_init();
     led_init();
+    display_control_refresh();
     uart_control_resume();
     s_sleeping = 0U;
     s_sleep_requested = 0U;
@@ -178,10 +182,22 @@ static uint8_t power_enter_stop(void)
     }
     if ((reason & U1_WAKE_LOCAL_EVENT) != 0U)
     {
-        /* The S1 press that woke U1 must never become a pump toggle event. */
-        s_suppress_s1 = 1U;
-        s_suppress_s1_seen_pressed = 0U;
-        s_suppress_s1_deadline = HAL_GetTick() + 200U;
+        /*
+         * Continue timing the same physical S1 press from the wake edge.
+         * Short/release events remain filtered so wake cannot toggle the pump.
+         */
+        if (key_prepare_s1_wake() != 0U)
+        {
+            s_suppress_s1 = 1U;
+            s_suppress_s1_seen_pressed = 1U;
+            s_suppress_s1_deadline = HAL_GetTick() + 200U;
+        }
+        else
+        {
+            s_suppress_s1 = 0U;
+            s_suppress_s1_seen_pressed = 0U;
+            s_suppress_s1_deadline = 0U;
+        }
         power_pulse_u2();
     }
     s_wake_flags = 0U;

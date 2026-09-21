@@ -102,6 +102,30 @@ void key_init(void)
     key_config_output();
 }
 
+uint8_t key_prepare_s1_wake(void)
+{
+    KeyState_t *key = &s_keys[KEY_S1];
+    uint8_t pressed;
+
+    /*
+     * key_init() leaves the multiplexed lines as LED outputs. Sample S1 once
+     * in the same pull-up input mode used by key_scan(), then restore the
+     * output mode before returning to the display loop.
+     */
+    key_config_pin_input(key->port, key->pin);
+    pressed = (HAL_GPIO_ReadPin(key->port, key->pin) == GPIO_PIN_RESET) ?
+              1U : 0U;
+    key_config_pin_output(key->port, key->pin);
+
+    key->pressed = pressed;
+    key->debounce_ticks = 0U;
+    key->hold_ticks = 0U;
+    key->long_sent = 0U;
+    key->events = KEY_EVENT_NONE;
+    s_last_scan_tick = HAL_GetTick();
+    return pressed;
+}
+
 void key_scan(void)
 {
     uint32_t now = HAL_GetTick();

@@ -38,6 +38,14 @@ void display_control_init(void)
     s_key_flags = DISPLAY_KEY_FLAG_NONE;
 }
 
+void display_control_refresh(void)
+{
+    /* led_init() clears the matrix buffer; rebuild rows from retained state. */
+    pressure_display_on_unit_changed();
+    battery_icon_set_charging(battery_icon_is_charging());
+    battery_icon_set_level(battery_icon_get_level());
+}
+
 void display_control_scan(void)
 {
     uint32_t s1_events;

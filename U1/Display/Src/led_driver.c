@@ -2,6 +2,7 @@
 #include "mode_led_driver.h"
 #include "unit_led_driver.h"
 #include "dc_led_driver.h"
+#include "pressure_display_driver.h"
 
 typedef struct
 {
@@ -138,6 +139,19 @@ static void led_set_unit_side(void)
 {
     uint32_t col;
     uint8_t unit = unit_led_get_index();
+
+    /*
+     * The kg/cm2 indicator uses the physical Q4/L14 intersection, which is
+     * also the last digit's decimal-point LED. Give the pressure value
+     * priority whenever that decimal point is active, otherwise a valid
+     * value such as 0.01 is rendered with an additional point.
+     */
+    if ((unit == (uint8_t)UNIT_LED_KG_CM2) &&
+        (pressure_display_actual_decimal_active() != 0U))
+    {
+        return;
+    }
+
     /*
      * 单位灯的公共端通常使用 Q1/L01；最后一个 L14-L08
      * 使用 Q4/P08，因此需要同时选择低边和对应高边。
