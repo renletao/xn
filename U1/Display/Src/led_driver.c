@@ -2,7 +2,6 @@
 #include "mode_led_driver.h"
 #include "unit_led_driver.h"
 #include "dc_led_driver.h"
-#include "pressure_display_driver.h"
 
 typedef struct
 {
@@ -142,13 +141,14 @@ static void led_set_unit_side(void)
 
     /*
      * The kg/cm2 indicator uses the physical Q4/L14 intersection, which is
-     * also the last digit's decimal-point LED. Give the pressure value
-     * priority whenever that decimal point is active, otherwise a valid
-     * value such as 0.01 is rendered with an additional point.
+     * also the upper pressure row's decimal-point line. The same hardware
+     * point cannot represent both the unit indicator and a numeric decimal
+     * point, so the numeric display owns this line for every kg/cm2 value.
      */
-    if ((unit == (uint8_t)UNIT_LED_KG_CM2) &&
-        (pressure_display_actual_decimal_active() != 0U))
+    if (unit == (uint8_t)UNIT_LED_KG_CM2)
     {
+        /* Do not leave L14 low from the preceding scan slot. */
+        led_all_low_off();
         return;
     }
 

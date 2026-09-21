@@ -316,11 +316,3 @@ void pressure_display_on_unit_changed(void)
     /* 单位灯状态已经更新，重新按新单位换算两排显示。 */
     pressure_refresh_frame();
 }
-
-uint8_t pressure_display_actual_decimal_active(void)
-{
-    return (pressure_decimal_position(
-                pressure_unit_hundredths(s_actual_pressure_pa,
-                                         unit_led_get_current())) >= 0) ?
-           1U : 0U;
-}

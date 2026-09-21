@@ -34,7 +34,4 @@ void pressure_display_target_decrease(void);
 /* 单位切换后重新换算并刷新实际值、目标值的显示缓存。 */
 void pressure_display_on_unit_changed(void);
 
-/* 返回实际压力当前是否需要点亮小数点段。 */
-uint8_t pressure_display_actual_decimal_active(void);
-
 #endif /* PRESSURE_DISPLAY_DRIVER_H */
