@@ -46,6 +46,11 @@ static uint32_t s_last_scan_tick;
 /* 显示总开关；关闭时保留缓存，但所有高低边均输出关闭电平。 */
 static uint8_t s_display_enabled;
 
+/* L14 是六个压力数位共用的小数点低边。 */
+#define LED_DECIMAL_COL 7U
+/* 给 SS8550 高边留出关断时间，避免相邻数位在切换瞬间同时选通。 */
+#define LED_ROW_BLANK_CYCLES 24U
+
 static void led_config_pin_output(const LED_Pin_t *pin)
 {
     GPIO_InitTypeDef gpio = {0};
@@ -76,6 +81,16 @@ static void led_all_high_off(void)
     }
 }
 
+static void led_wait_high_side_off(void)
+{
+    volatile uint32_t cycle;
+
+    for (cycle = 0U; cycle < LED_ROW_BLANK_CYCLES; ++cycle)
+    {
+        __NOP();
+    }
+}
+
 static void led_all_low_off(void)
 {
     uint32_t i;
@@ -99,10 +114,30 @@ static void led_set_low_side(uint8_t row)
     /* row 在调用前已经由 led_scan() 限制为 0~7。 */
     for (col = 0U; col < LED_MATRIX_COLS; ++col)
     {
-        GPIO_PinState state = ((row_data & (uint8_t)(1U << col)) != 0U) ?
-                              GPIO_PIN_RESET : GPIO_PIN_SET;
+        GPIO_PinState state;
+
+        /* L14 在 Q 行切换期间始终保持关闭。 */
+        if (col == LED_DECIMAL_COL)
+        {
+            state = GPIO_PIN_SET;
+        }
+        else
+        {
+            state = ((row_data & (uint8_t)(1U << col)) != 0U) ?
+                    GPIO_PIN_RESET : GPIO_PIN_SET;
+        }
         HAL_GPIO_WritePin(s_low_pins[col].port, s_low_pins[col].pin, state);
     }
+}
+
+static void led_set_decimal_side(uint8_t row)
+{
+    GPIO_PinState state =
+        ((s_frame[row] & (uint8_t)(1U << LED_DECIMAL_COL)) != 0U) ?
+        GPIO_PIN_RESET : GPIO_PIN_SET;
+
+    HAL_GPIO_WritePin(s_low_pins[LED_DECIMAL_COL].port,
+                      s_low_pins[LED_DECIMAL_COL].pin, state);
 }
 
 static void led_set_mode_side(void)
@@ -221,11 +256,13 @@ void led_scan(void)
         return;
     }
 
-    /*
-     * 每次切换前先关闭全部高边，再更新低边数据，最后打开目标高边。
-     * 这个顺序可以避免高边切换期间出现串光和鬼影。
-     */
+    /* 先关闭 L14，保证小数点不会跨越两个 Q 行的切换窗口。 */
+    HAL_GPIO_WritePin(s_low_pins[LED_DECIMAL_COL].port,
+                      s_low_pins[LED_DECIMAL_COL].pin, GPIO_PIN_SET);
+
+    /* 每次切换前先关闭全部高边，再更新低边数据，最后打开目标高边。 */
     led_all_high_off();
+    led_wait_high_side_off();
     if (s_scan_row < LED_MATRIX_ROWS)
     {
         /* 普通矩阵行：输出该行缓存并打开对应的 Q1~Q8 高边。 */
@@ -233,6 +270,8 @@ void led_scan(void)
         HAL_GPIO_WritePin(s_high_pins[s_scan_row].port,
                           s_high_pins[s_scan_row].pin,
                           GPIO_PIN_RESET);
+        /* 高边已经唯一选定，现在才允许当前行按缓存点亮小数点。 */
+        led_set_decimal_side(s_scan_row);
     }
     else if (s_scan_row == LED_MATRIX_ROWS)
     {
@@ -323,10 +362,38 @@ void led_set_frame(const uint8_t frame[LED_MATRIX_ROWS])
 
 void led_set_row(uint8_t row, uint8_t data)
 {
+    uint8_t first_row;
+    uint8_t i;
+
     /* 越界行直接忽略，防止破坏显示缓存。 */
     if (row >= LED_MATRIX_ROWS)
     {
         return;
+    }
+
+    /* 上下两排压力值各自最多允许一个数位携带小数点。 */
+    if ((data & (uint8_t)(1U << LED_DECIMAL_COL)) != 0U)
+    {
+        if ((row >= 1U) && (row <= 3U))
+        {
+            first_row = 1U;
+        }
+        else if ((row >= 4U) && (row <= 6U))
+        {
+            first_row = 4U;
+        }
+        else
+        {
+            first_row = LED_MATRIX_ROWS;
+        }
+
+        for (i = first_row; i < (uint8_t)(first_row + 3U); ++i)
+        {
+            if (i < LED_MATRIX_ROWS)
+            {
+                s_frame[i] &= (uint8_t)~(1U << LED_DECIMAL_COL);
+            }
+        }
     }
 
     /* 单行更新用于压力/电池等模块，避免相互覆盖其他行。 */
