@@ -53,10 +53,7 @@ void display_control_scan(void)
      */
     /* S1 短按切换压力泵，长按切换 U1 本地显示状态。 */
     s1_events = key_get_event(KEY_S1);
-    if (power_manager_suppress_s1_events() != 0U)
-    {
-        s1_events = KEY_EVENT_NONE;
-    }
+    s1_events = power_manager_filter_s1_events(s1_events);
     if ((s1_events & KEY_EVENT_SHORT_RELEASE) != 0U)
     {
         s_key_flags |= DISPLAY_KEY_FLAG_S1;

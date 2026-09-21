@@ -218,34 +218,43 @@ uint8_t power_manager_is_sleeping(void)
     return s_sleeping;
 }
 
-uint8_t power_manager_suppress_s1_events(void)
+uint32_t power_manager_filter_s1_events(uint32_t events)
 {
+    const uint32_t release_events = KEY_EVENT_SHORT_RELEASE |
+                                    KEY_EVENT_LONG_RELEASE;
+
     if (s_suppress_s1 == 0U)
     {
-        return 0U;
+        return events;
     }
 
     if (key_is_pressed(KEY_S1) != 0U)
     {
         s_suppress_s1_seen_pressed = 1U;
-        return 1U;
+        /*
+         * The wake gesture remains active after U1 leaves STOP. Keep the
+         * long-press event so it can turn the display on, while dropping the
+         * press event that must never toggle the pump.
+         */
+        return events & KEY_EVENT_LONG_PRESS;
     }
 
-    if (s_suppress_s1_seen_pressed != 0U)
+    if ((events & release_events) != 0U)
     {
-        /* Suppress the release event too, then resume normal key handling. */
+        /* Suppress the release event, then resume normal key handling. */
         s_suppress_s1 = 0U;
-        return 1U;
+        return events & ~release_events;
     }
 
-    if ((int32_t)(HAL_GetTick() - s_suppress_s1_deadline) >= 0)
+    if ((s_suppress_s1_seen_pressed == 0U) &&
+        ((int32_t)(HAL_GetTick() - s_suppress_s1_deadline) >= 0))
     {
         /* A very short tap may release before debounce confirms a press. */
         s_suppress_s1 = 0U;
-        return 0U;
     }
 
-    return 1U;
+    /* No confirmed press/release yet; there is no event to consume. */
+    return events & ~release_events;
 }
 
 void power_manager_task(void)
