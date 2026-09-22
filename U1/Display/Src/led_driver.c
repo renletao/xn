@@ -54,8 +54,10 @@ static uint8_t s_display_enabled;
 #define LED_ACTUAL_DP_SCAN_SLOT  (LED_MATRIX_ROWS + 2U)
 #define LED_TARGET_DP_SCAN_SLOT  (LED_MATRIX_ROWS + 3U)
 #define LED_SCAN_SLOT_COUNT      (LED_MATRIX_ROWS + 4U)
-/* 24 MHz 下留出约 100 us，等待 SS8550 和矩阵公共端完全释放。 */
-#define LED_ROW_BLANK_CYCLES 2400U
+/* 普通数字行只需短空白，避免降低整屏亮度。 */
+#define LED_ROW_BLANK_CYCLES       240U
+/* L14 相关时隙也使用短空白，避免单位/小数点亮度明显偏低。 */
+#define LED_L14_BLANK_CYCLES       240U
 
 /* 前置声明：高边放电函数位于低边关闭函数之前。 */
 static void led_all_low_off(void);
@@ -90,17 +92,17 @@ static void led_all_high_off(void)
     }
 }
 
-static void led_wait_high_side_off(void)
+static void led_wait_cycles(uint32_t cycles)
 {
     volatile uint32_t cycle;
 
-    for (cycle = 0U; cycle < LED_ROW_BLANK_CYCLES; ++cycle)
+    for (cycle = 0U; cycle < cycles; ++cycle)
     {
         __NOP();
     }
 }
 
-static void led_discharge_high_side_rails(void)
+static void led_discharge_high_side_rails(uint32_t cycles)
 {
     /*
      * PNP 关闭后，L01/L06~L11/L15 会成为悬空公共端。正常矩阵扫描曾给
@@ -116,7 +118,7 @@ static void led_discharge_high_side_rails(void)
         HAL_GPIO_WritePin(s_low_pins[col].port,
                           s_low_pins[col].pin, GPIO_PIN_RESET);
     }
-    led_wait_high_side_off();
+    led_wait_cycles(cycles);
     led_all_low_off();
 }
 
@@ -270,6 +272,7 @@ void led_init(void)
 void led_scan(void)
 {
     uint32_t now = HAL_GetTick();
+    uint32_t blank_cycles;
 
     /* 使用无符号差值，兼容 HAL tick 溢出后的时间比较。 */
     if ((uint32_t)(now - s_last_scan_tick) < LED_SCAN_STEP_MS)
@@ -289,8 +292,12 @@ void led_scan(void)
     /* 先切断电流并关闭高边，再主动释放所有悬空公共端的残留电位。 */
     led_all_low_off();
     led_all_high_off();
-    led_wait_high_side_off();
-    led_discharge_high_side_rails();
+    blank_cycles = ((s_scan_slot == LED_UNIT_SCAN_SLOT) ||
+                    (s_scan_slot == LED_ACTUAL_DP_SCAN_SLOT) ||
+                    (s_scan_slot == LED_TARGET_DP_SCAN_SLOT)) ?
+                   LED_L14_BLANK_CYCLES : LED_ROW_BLANK_CYCLES;
+    led_wait_cycles(blank_cycles);
+    led_discharge_high_side_rails(blank_cycles);
     if (s_scan_slot < LED_MATRIX_ROWS)
     {
         /* 普通矩阵行不驱动 L14，小数点由后面的独立时隙完成。 */
