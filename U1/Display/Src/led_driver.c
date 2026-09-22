@@ -175,19 +175,6 @@ static void led_set_unit_side(void)
     uint8_t unit = unit_led_get_index();
 
     /*
-     * The kg/cm2 indicator uses the physical Q4/L14 intersection, which is
-     * also the upper pressure row's decimal-point line. The same hardware
-     * point cannot represent both the unit indicator and a numeric decimal
-     * point, so the numeric display owns this line for every kg/cm2 value.
-     */
-    if (unit == (uint8_t)UNIT_LED_KG_CM2)
-    {
-        /* Do not leave L14 low from the preceding scan slot. */
-        led_all_low_off();
-        return;
-    }
-
-    /*
      * 单位灯的公共端通常使用 Q1/L01；最后一个 L14-L08
      * 使用 Q4/P08，因此需要同时选择低边和对应高边。
      */
