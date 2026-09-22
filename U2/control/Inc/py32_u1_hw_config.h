@@ -62,6 +62,8 @@
 #define PIN_IP2326_EN_PORT           PIN_PA2_PORT
 #define PIN_IP2326_EN_PIN            PIN_PA2_PIN
 #define PIN_IP2326_EN_ACTIVE_LEVEL   1U
+/* 临时测试开关：置 1 时强制关闭 IP2326，不改变 USB/充电状态判断。 */
+#define U2_IP2326_DISABLED           1U
 
 #define PIN_BAT_ADC_PORT             PIN_PA3_PORT
 #define PIN_BAT_ADC_PIN              PIN_PA3_PIN

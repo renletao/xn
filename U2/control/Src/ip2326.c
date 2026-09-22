@@ -24,6 +24,11 @@ static GPIO_PinState ip2326_level(uint8_t enable)
 
 void ip2326_set(uint8_t enable)
 {
+  /* 测试期间屏蔽所有上层开启请求，只允许输出关闭电平。 */
+#if U2_IP2326_DISABLED
+  enable = 0U;
+#endif
+
   /* 只负责写电平，不改变 GPIO 模式；模式由 ip2326_init() 统一配置。 */
   HAL_GPIO_WritePin(PIN_IP2326_EN_PORT, PIN_IP2326_EN_PIN,
                     ip2326_level(enable));
