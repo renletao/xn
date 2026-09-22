@@ -48,8 +48,6 @@ static uint8_t s_display_enabled;
 
 /* L14 是四个压力小数点和两个单位灯共用的低边。 */
 #define LED_DECIMAL_COL 7U
-/* 所有 8 条高边均有一颗连接到 L00 的 LED，用它释放悬空公共端电位。 */
-#define LED_HIGH_DISCHARGE_COL 0U
 /* 8 个矩阵行、模式、单位、上排 DP、下排 DP 共 12 个扫描时隙。 */
 #define LED_MODE_SCAN_SLOT       LED_MATRIX_ROWS
 #define LED_UNIT_SCAN_SLOT       (LED_MATRIX_ROWS + 1U)
@@ -105,16 +103,18 @@ static void led_discharge_high_side_rails(void)
      * PNP 关闭后，L01/L06~L11/L15 会成为悬空公共端。正常矩阵扫描曾给
      * 这些网络充电，仅关闭 Q 管不能立即消除残留电位；随后拉低 L14 时，
      * 残留电位会经过未选中行的小数点形成串亮。全部 Q 管关闭后，短暂
-     * 拉低公共的 L00 段线，将 8 条高边通过各自的 L00 LED 和 1 kΩ 电阻
-     * 释放，再恢复为关闭电平。
+     * 拉低全部低边，让每条实际存在的 LED 通路都能把对应公共端释放，
+     * 再恢复为关闭电平。
      */
-    HAL_GPIO_WritePin(s_low_pins[LED_HIGH_DISCHARGE_COL].port,
-                      s_low_pins[LED_HIGH_DISCHARGE_COL].pin,
-                      GPIO_PIN_RESET);
+    uint32_t col;
+
+    for (col = 0U; col < LED_MATRIX_COLS; ++col)
+    {
+        HAL_GPIO_WritePin(s_low_pins[col].port,
+                          s_low_pins[col].pin, GPIO_PIN_RESET);
+    }
     led_wait_high_side_off();
-    HAL_GPIO_WritePin(s_low_pins[LED_HIGH_DISCHARGE_COL].port,
-                      s_low_pins[LED_HIGH_DISCHARGE_COL].pin,
-                      GPIO_PIN_SET);
+    led_all_low_off();
 }
 
 static void led_all_low_off(void)
