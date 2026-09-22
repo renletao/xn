@@ -40,16 +40,22 @@ static const LED_Pin_t s_low_pins[LED_MATRIX_COLS] =
 
 /* 显示缓存。每一位对应一条低边线，bit=1 表示该行的 LED 点亮。 */
 static uint8_t s_frame[LED_MATRIX_ROWS];
-/* 当前扫描时隙：0~7 为 Q1~Q8，8 为模式/DC，9 为单位指示。 */
-static uint8_t s_scan_row;
+/* 当前扫描时隙：8 行矩阵、模式/DC、单位、上排 DP、下排 DP。 */
+static uint8_t s_scan_slot;
 static uint32_t s_last_scan_tick;
 /* 显示总开关；关闭时保留缓存，但所有高低边均输出关闭电平。 */
 static uint8_t s_display_enabled;
 
-/* L14 是六个压力数位共用的小数点低边。 */
+/* L14 是四个压力小数点和两个单位灯共用的低边。 */
 #define LED_DECIMAL_COL 7U
-/* 给 SS8550 高边留出关断时间，避免相邻数位在切换瞬间同时选通。 */
-#define LED_ROW_BLANK_CYCLES 24U
+/* 8 个矩阵行、模式、单位、上排 DP、下排 DP 共 12 个扫描时隙。 */
+#define LED_MODE_SCAN_SLOT       LED_MATRIX_ROWS
+#define LED_UNIT_SCAN_SLOT       (LED_MATRIX_ROWS + 1U)
+#define LED_ACTUAL_DP_SCAN_SLOT  (LED_MATRIX_ROWS + 2U)
+#define LED_TARGET_DP_SCAN_SLOT  (LED_MATRIX_ROWS + 3U)
+#define LED_SCAN_SLOT_COUNT      (LED_MATRIX_ROWS + 4U)
+/* 24 MHz 下至少留出约 10 us，使 SS8550 在下一高边打开前完全关断。 */
+#define LED_ROW_BLANK_CYCLES 240U
 
 static void led_config_pin_output(const LED_Pin_t *pin)
 {
@@ -130,14 +136,28 @@ static void led_set_low_side(uint8_t row)
     }
 }
 
-static void led_set_decimal_side(uint8_t row)
+static void led_set_pressure_decimal_side(uint8_t first_row)
 {
-    GPIO_PinState state =
-        ((s_frame[row] & (uint8_t)(1U << LED_DECIMAL_COL)) != 0U) ?
-        GPIO_PIN_RESET : GPIO_PIN_SET;
+    uint8_t row;
 
+    /* 独立 DP 时隙中只允许 L14 一条低边有效。 */
+    led_all_low_off();
+    for (row = first_row; row < (uint8_t)(first_row + 2U); ++row)
+    {
+        if ((s_frame[row] & (uint8_t)(1U << LED_DECIMAL_COL)) != 0U)
+        {
+            /* 缓存已约束每排最多一个 DP；找到后只打开对应高边。 */
+            HAL_GPIO_WritePin(s_high_pins[row].port,
+                              s_high_pins[row].pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(s_low_pins[LED_DECIMAL_COL].port,
+                              s_low_pins[LED_DECIMAL_COL].pin, GPIO_PIN_RESET);
+            return;
+        }
+    }
+
+    /* 当前压力值不需要小数点时，保持整个 DP 时隙熄灭。 */
     HAL_GPIO_WritePin(s_low_pins[LED_DECIMAL_COL].port,
-                      s_low_pins[LED_DECIMAL_COL].pin, state);
+                      s_low_pins[LED_DECIMAL_COL].pin, GPIO_PIN_SET);
 }
 
 static void led_set_mode_side(void)
@@ -220,7 +240,7 @@ void led_init(void)
     /* 上电默认允许显示。 */
     s_display_enabled = 1U;
     /* 从 Q1 开始扫描，并以当前 HAL tick 作为第一个时间基准。 */
-    s_scan_row = 0U;
+    s_scan_slot = 0U;
     s_last_scan_tick = HAL_GetTick();
 }
 
@@ -243,24 +263,19 @@ void led_scan(void)
         return;
     }
 
-    /* 先关闭 L14，保证小数点不会跨越两个 Q 行的切换窗口。 */
-    HAL_GPIO_WritePin(s_low_pins[LED_DECIMAL_COL].port,
-                      s_low_pins[LED_DECIMAL_COL].pin, GPIO_PIN_SET);
-
-    /* 每次切换前先关闭全部高边，再更新低边数据，最后打开目标高边。 */
+    /* 先关闭全部低边切断电流，再关闭高边并等待 PNP 管完全关断。 */
+    led_all_low_off();
     led_all_high_off();
     led_wait_high_side_off();
-    if (s_scan_row < LED_MATRIX_ROWS)
+    if (s_scan_slot < LED_MATRIX_ROWS)
     {
-        /* 普通矩阵行：输出该行缓存并打开对应的 Q1~Q8 高边。 */
-        led_set_low_side(s_scan_row);
-        HAL_GPIO_WritePin(s_high_pins[s_scan_row].port,
-                          s_high_pins[s_scan_row].pin,
+        /* 普通矩阵行不驱动 L14，小数点由后面的独立时隙完成。 */
+        led_set_low_side(s_scan_slot);
+        HAL_GPIO_WritePin(s_high_pins[s_scan_slot].port,
+                          s_high_pins[s_scan_slot].pin,
                           GPIO_PIN_RESET);
-        /* 高边已经唯一选定，现在才允许当前行按缓存点亮小数点。 */
-        led_set_decimal_side(s_scan_row);
     }
-    else if (s_scan_row == LED_MATRIX_ROWS)
+    else if (s_scan_slot == LED_MODE_SCAN_SLOT)
     {
         /* 辅助时隙 8：Q1/L01 驱动模式灯和 DC 充电灯。 */
         led_set_mode_side();
@@ -268,17 +283,26 @@ void led_scan(void)
                           s_high_pins[0].pin,
                           GPIO_PIN_RESET);
     }
-    else
+    else if (s_scan_slot == LED_UNIT_SCAN_SLOT)
     {
         /* 辅助时隙 9：驱动当前选中的单位灯。 */
         led_set_unit_side();
     }
-
-    /* 8 行矩阵 + 2 个辅助时隙组成完整扫描周期。 */
-    ++s_scan_row;
-    if (s_scan_row > (LED_MATRIX_ROWS + 1U))
+    else if (s_scan_slot == LED_ACTUAL_DP_SCAN_SLOT)
     {
-        s_scan_row = 0U;
+        /* 辅助时隙 10：只扫描上排实际压力的小数点。 */
+        led_set_pressure_decimal_side(1U);
+    }
+    else
+    {
+        /* 辅助时隙 11：只扫描下排目标压力的小数点。 */
+        led_set_pressure_decimal_side(4U);
+    }
+
+    ++s_scan_slot;
+    if (s_scan_slot >= LED_SCAN_SLOT_COUNT)
+    {
+        s_scan_slot = 0U;
     }
 }
 
