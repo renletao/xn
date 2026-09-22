@@ -57,6 +57,9 @@ static uint8_t s_display_enabled;
 /* 24 MHz 下至少留出约 10 us，使 SS8550 在下一高边打开前完全关断。 */
 #define LED_ROW_BLANK_CYCLES 240U
 
+/* 前置声明：高边放电函数位于低边关闭函数之前。 */
+static void led_all_low_off(void);
+
 static void led_config_pin_output(const LED_Pin_t *pin)
 {
     GPIO_InitTypeDef gpio = {0};
