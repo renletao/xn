@@ -44,8 +44,17 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef *htim)
 
 static uint16_t moto_limit_duty(uint16_t duty)
 {
-  /* 防止比较值超过周期，避免出现不可预期的 PWM 输出。 */
+  /* 防止逻辑占空比超过 100%，避免比较值溢出。 */
   return (duty > MOTO_PWM_MAX) ? MOTO_PWM_MAX : duty;
+}
+
+static uint16_t moto_duty_to_compare(uint16_t duty)
+{
+  uint32_t limited_duty = moto_limit_duty(duty);
+
+  /* 逻辑占空比使用 0~1000，硬件比较值使用 0~2000。 */
+  return (uint16_t)(((uint32_t)limited_duty * MOTO_PWM_PERIOD_COUNTS) /
+                    MOTO_PWM_MAX);
 }
 
 static void moto_error(void)
@@ -58,11 +67,11 @@ void moto_init(void)
 {
   TIM_OC_InitTypeDef oc_config = {0};
 
-  /* 预分频后计数频率为 1 MHz，周期 1000 个计数，对应约 1 kHz PWM。 */
+  /* 预分频后计数频率为 1 MHz，周期 2000 个计数，对应 500 Hz PWM。 */
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 24U - 1U;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = MOTO_PWM_MAX - 1U;
+  htim1.Init.Period = MOTO_PWM_PERIOD_COUNTS - 1U;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0U;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -127,14 +136,16 @@ void moto_resume(void)
 
 void moto_set_moto1_pwm(uint16_t duty)
 {
-  /* 写入 MOTO1 比较寄存器；超限占空比会被限制到最大值。 */
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, moto_limit_duty(duty));
+  /* duty 使用 0~1000 的逻辑刻度，再换算为 500 Hz PWM 的比较值。 */
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1,
+                        moto_duty_to_compare(duty));
 }
 
 void moto_set_moto2_pwm(uint16_t duty)
 {
-  /* 写入 MOTO2 比较寄存器；超限占空比会被限制到最大值。 */
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, moto_limit_duty(duty));
+  /* duty 使用 0~1000 的逻辑刻度，再换算为 500 Hz PWM 的比较值。 */
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2,
+                        moto_duty_to_compare(duty));
 }
 
 void moto_low_pressure_on(void)

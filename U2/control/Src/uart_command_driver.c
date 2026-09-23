@@ -21,12 +21,143 @@ volatile uint32_t g_uart_pump_target_pressure_pa;
 volatile uint8_t g_uart_pump_mode = UART_COMMAND_MODE_RAFT;
 volatile uint8_t g_uart_pump_running;
 
+#define UART_COMMAND_PUMP_START_DUTY             MOTO_PUMP_START_DUTY
+#define UART_COMMAND_PUMP_KICK_PHASE_COUNT       4U
+#define UART_COMMAND_PUMP_NORMAL_KICK_TOTAL_MS   23U
+#define UART_COMMAND_PUMP_SUP_HIGH_KICK_TOTAL_MS 256U
+#define UART_COMMAND_PUMP_SUP_SWITCH_PAUSE_MS    1000U
+
+typedef enum
+{
+  PUMP_CONTROL_IDLE = 0,
+  PUMP_CONTROL_HIGH_KICK,
+  PUMP_CONTROL_HIGH_RUN,
+  PUMP_CONTROL_LOW_KICK,
+  PUMP_CONTROL_LOW_RUN,
+  PUMP_CONTROL_SUP_SWITCH_WAIT,
+  PUMP_CONTROL_SUP_HIGH_KICK,
+  PUMP_CONTROL_SUP_HIGH_RUN
+} PumpControlState_t;
+
+static PumpControlState_t s_pump_control_state;
+static uint8_t s_pump_kick_phase;
+static uint32_t s_pump_control_deadline;
+
+static void uart_command_pump_reset_state(void)
+{
+  s_pump_control_state = PUMP_CONTROL_IDLE;
+  s_pump_kick_phase = 0U;
+  s_pump_control_deadline = 0U;
+}
+
+static void uart_command_pump_set_outputs(uint16_t low_duty,
+                                           uint16_t high_duty)
+{
+  moto_set_moto1_pwm(low_duty);
+  moto_set_moto2_pwm(high_duty);
+}
+
+static void uart_command_pump_stop(void)
+{
+  uart_command_pump_reset_state();
+  moto_stop();
+}
+
+static uint8_t uart_command_pump_uses_low_pressure(uint8_t mode)
+{
+  /* 当前协议的皮筏艇模式对应“低压泵后切高压泵”的 SUP/气垫流程。 */
+  return (mode == UART_COMMAND_MODE_RAFT) ? 1U : 0U;
+}
+
+static uint32_t uart_command_pump_kick_phase_ms(uint8_t high_kick,
+                                                 uint8_t phase)
+{
+  uint32_t total_ms = (high_kick != 0U) ?
+                      UART_COMMAND_PUMP_SUP_HIGH_KICK_TOTAL_MS :
+                      UART_COMMAND_PUMP_NORMAL_KICK_TOTAL_MS;
+  uint32_t base_ms = total_ms / UART_COMMAND_PUMP_KICK_PHASE_COUNT;
+  uint32_t remainder_ms = total_ms % UART_COMMAND_PUMP_KICK_PHASE_COUNT;
+
+  /* 将余数分配到前几个阶段，保证所有阶段之和严格等于总时长。 */
+  return base_ms + ((phase < remainder_ms) ? 1U : 0U);
+}
+
+static void uart_command_pump_apply_kick_phase(uint8_t high_pressure,
+                                                uint8_t phase)
+{
+  uint16_t duty = (phase < (UART_COMMAND_PUMP_KICK_PHASE_COUNT - 1U)) ?
+                  UART_COMMAND_PUMP_START_DUTY : 0U;
+
+  if (high_pressure != 0U)
+  {
+    uart_command_pump_set_outputs(0U, duty);
+  }
+  else
+  {
+    uart_command_pump_set_outputs(duty, 0U);
+  }
+}
+
+static void uart_command_pump_start_kick(PumpControlState_t state,
+                                          uint8_t high_pressure,
+                                          uint8_t high_kick,
+                                          uint32_t now)
+{
+  s_pump_control_state = state;
+  s_pump_kick_phase = 0U;
+  s_pump_control_deadline = now +
+                            uart_command_pump_kick_phase_ms(high_kick, 0U);
+  uart_command_pump_apply_kick_phase(high_pressure, 0U);
+}
+
+static void uart_command_pump_advance_kick(uint8_t high_pressure,
+                                            uint8_t high_kick,
+                                            uint32_t now)
+{
+  /* deadline 使用绝对时序；任务偶发延迟时补齐已到期的阶段，避免拉长软启动。 */
+  while ((int32_t)(now - s_pump_control_deadline) >= 0)
+  {
+    if (s_pump_kick_phase < (UART_COMMAND_PUMP_KICK_PHASE_COUNT - 1U))
+    {
+      ++s_pump_kick_phase;
+      s_pump_control_deadline +=
+        uart_command_pump_kick_phase_ms(high_kick, s_pump_kick_phase);
+      uart_command_pump_apply_kick_phase(high_pressure, s_pump_kick_phase);
+      continue;
+    }
+
+    /* 预启动脉冲完成后进入持续全开状态。 */
+    if (high_pressure != 0U)
+    {
+      uart_command_pump_set_outputs(0U, MOTO_PWM_MAX);
+    }
+    else
+    {
+      uart_command_pump_set_outputs(MOTO_PWM_MAX, 0U);
+    }
+
+    if (high_kick != 0U)
+    {
+      s_pump_control_state = PUMP_CONTROL_SUP_HIGH_RUN;
+    }
+    else if (high_pressure != 0U)
+    {
+      s_pump_control_state = PUMP_CONTROL_HIGH_RUN;
+    }
+    else
+    {
+      s_pump_control_state = PUMP_CONTROL_LOW_RUN;
+    }
+    return;
+  }
+}
+
 static void uart_command_enforce_motor_protection(void)
 {
   if (charge_is_motor_start_allowed() == 0U)
   {
     g_uart_pump_running = 0U;
-    moto_stop();
+    uart_command_pump_stop();
   }
 }
 
@@ -41,17 +172,18 @@ static uint32_t uart_command_decode_u32_le(const uint8_t *data)
 void uart_command_pump_task(void)
 {
   uint32_t pressure_pa;
+  uint32_t now = HAL_GetTick();
 
   if (charge_is_motor_start_allowed() == 0U)
   {
     g_uart_pump_running = 0U;
-    moto_stop();
+    uart_command_pump_stop();
     return;
   }
 
   if (g_uart_pump_running == 0U)
   {
-    moto_stop();
+    uart_command_pump_stop();
     return;
   }
 
@@ -59,29 +191,93 @@ void uart_command_pump_task(void)
   if (g_wf183d_pressure_pa >= g_uart_pump_target_pressure_pa)
   {
     g_uart_pump_running = 0U;
-    moto_stop();
+    uart_command_pump_stop();
     return;
   }
 
-  if (g_uart_pump_mode == UART_COMMAND_MODE_RAFT)
+  if (uart_command_pump_uses_low_pressure(g_uart_pump_mode) != 0U)
   {
     pressure_pa = wf183d_get_pressure_pa();
-    if (pressure_pa <= UART_COMMAND_PUMP_SWITCH_PRESSURE_PA)
+
+    switch (s_pump_control_state)
     {
-      moto_high_pressure_off();
-      moto_low_pressure_on();
-    }
-    else
-    {
-      moto_low_pressure_off();
-      moto_high_pressure_on();
+      case PUMP_CONTROL_IDLE:
+        if (pressure_pa <= UART_COMMAND_PUMP_SWITCH_PRESSURE_PA)
+        {
+          /* SUP/气垫模式先对低压泵执行 23 ms 预启动脉冲。 */
+          uart_command_pump_start_kick(PUMP_CONTROL_LOW_KICK, 0U, 0U,
+                                        now);
+        }
+        else
+        {
+          /* 已经超过切换压力时跳过低压泵，直接启动高压泵。 */
+          uart_command_pump_start_kick(PUMP_CONTROL_SUP_HIGH_KICK, 1U, 1U,
+                                        now);
+        }
+        break;
+
+      case PUMP_CONTROL_LOW_KICK:
+        uart_command_pump_advance_kick(0U, 0U, now);
+        break;
+
+      case PUMP_CONTROL_LOW_RUN:
+        uart_command_pump_set_outputs(MOTO_PWM_MAX, 0U);
+        if (pressure_pa > UART_COMMAND_PUMP_SWITCH_PRESSURE_PA)
+        {
+          /* 切换泵前两路都关闭，并保持 1 s。 */
+          uart_command_pump_set_outputs(0U, 0U);
+          s_pump_control_state = PUMP_CONTROL_SUP_SWITCH_WAIT;
+          s_pump_control_deadline = now +
+                                     UART_COMMAND_PUMP_SUP_SWITCH_PAUSE_MS;
+        }
+        break;
+
+      case PUMP_CONTROL_SUP_SWITCH_WAIT:
+        uart_command_pump_set_outputs(0U, 0U);
+        if ((int32_t)(now - s_pump_control_deadline) >= 0)
+        {
+          /* 1 s 停止完成后，对高压泵执行 256 ms 预启动脉冲。 */
+          uart_command_pump_start_kick(PUMP_CONTROL_SUP_HIGH_KICK, 1U, 1U,
+                                        now);
+        }
+        break;
+
+      case PUMP_CONTROL_SUP_HIGH_KICK:
+        uart_command_pump_advance_kick(1U, 1U, now);
+        break;
+
+      case PUMP_CONTROL_SUP_HIGH_RUN:
+        uart_command_pump_set_outputs(0U, MOTO_PWM_MAX);
+        break;
+
+      default:
+        /* 状态异常时回到安全停止，再由下一轮重新选择启动阶段。 */
+        uart_command_pump_stop();
+        break;
     }
   }
   else
   {
-    /* Air-bed and tire modes use only the high-pressure pump. */
-    moto_low_pressure_off();
-    moto_high_pressure_on();
+    /* 普通模式只使用高压泵，并先执行 23 ms 预启动脉冲。 */
+    switch (s_pump_control_state)
+    {
+      case PUMP_CONTROL_IDLE:
+        uart_command_pump_start_kick(PUMP_CONTROL_HIGH_KICK, 1U, 0U, now);
+        break;
+
+      case PUMP_CONTROL_HIGH_KICK:
+        uart_command_pump_advance_kick(1U, 0U, now);
+        break;
+
+      case PUMP_CONTROL_HIGH_RUN:
+        uart_command_pump_set_outputs(0U, MOTO_PWM_MAX);
+        break;
+
+      default:
+        /* 模式内状态不匹配时先清零，避免两路泵保持未知输出。 */
+        uart_command_pump_stop();
+        break;
+    }
   }
 }
 
@@ -90,6 +286,7 @@ void uart_command_init(void)
   g_uart_pump_target_pressure_pa = 0U;
   g_uart_pump_mode = UART_COMMAND_MODE_RAFT;
   g_uart_pump_running = 0U;
+  uart_command_pump_reset_state();
 
   /* 先初始化协议状态，再启动底层接收中断，避免中断使用未初始化状态。 */
   uart_protocol_init();
@@ -213,6 +410,8 @@ void uart_command_task(void)
           wf183d_add_tare_pa(target_pressure_pa);
         g_uart_pump_mode = mode;
         g_uart_pump_running = 1U;
+        /* 每次有效启动命令都从对应泵的软启动阶段重新开始。 */
+        uart_command_pump_reset_state();
         uart_command_pump_task();
         status = (g_uart_pump_running != 0U) ?
                  UART_COMMAND_PUMP_RUNNING : UART_COMMAND_PUMP_STOPPED;
@@ -232,7 +431,7 @@ void uart_command_task(void)
     if (length == 0U)
     {
       g_uart_pump_running = 0U;
-      moto_stop();
+      uart_command_pump_stop();
       status = UART_COMMAND_PUMP_STOPPED;
     }
 

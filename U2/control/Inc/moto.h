@@ -15,7 +15,11 @@
 extern "C" {
 #endif
 
-#define MOTO_PWM_MAX                1000U  /* PWM 周期计数，约对应 0~100.0%。 */
+#define MOTO_PWM_MAX                1000U  /* 逻辑占空比满量程，1000=100%。 */
+#define MOTO_PWM_FREQUENCY_HZ       500U   /* 压力泵 PWM 载波频率。 */
+#define MOTO_PWM_TIMER_HZ           1000000U /* TIM1 预分频后的计数频率。 */
+#define MOTO_PWM_PERIOD_COUNTS      (MOTO_PWM_TIMER_HZ / MOTO_PWM_FREQUENCY_HZ)
+#define MOTO_PUMP_START_DUTY        750U   /* 预启动脉冲占空比：75%。 */
 
 /** 初始化 TIM1、PA0/PA1 复用，并以停止状态启动 PWM。 */
 void moto_init(void);
@@ -25,11 +29,11 @@ void moto_resume(void);
 void moto_set_moto1_pwm(uint16_t duty);
 /** 设置 MOTO2（高压泵）的比较值，占空比超过上限时自动限幅。 */
 void moto_set_moto2_pwm(uint16_t duty);
-/** 开启抵压泵：MOTO1 输出 100%，不改变 MOTO2。 */
+/** 立即全开抵压泵：MOTO1 输出 100%，不改变 MOTO2。 */
 void moto_low_pressure_on(void);
 /** 关闭抵压泵：MOTO1 输出 0%，不改变 MOTO2。 */
 void moto_low_pressure_off(void);
-/** 开启高压泵：MOTO2 输出 100%，不改变 MOTO1。 */
+/** 立即全开高压泵：MOTO2 输出 100%，不改变 MOTO1。 */
 void moto_high_pressure_on(void);
 /** 关闭高压泵：MOTO2 输出 0%，不改变 MOTO1。 */
 void moto_high_pressure_off(void);
