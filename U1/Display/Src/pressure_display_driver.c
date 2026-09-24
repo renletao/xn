@@ -141,9 +141,30 @@ static uint16_t pressure_hundredths_to_display(uint32_t hundredths)
            PRESSURE_DISPLAY_MAX : (uint16_t)display_value;
 }
 
-static int8_t pressure_decimal_position(uint32_t hundredths)
+static uint16_t pressure_value_to_display(uint32_t hundredths,
+                                          UnitLedUnit_t unit)
+{
+    if (unit == UNIT_LED_KPA)
+    {
+        /* KPA 固定显示整数，0.5 kPa 以上按四舍五入处理。 */
+        uint32_t kpa = (hundredths + 50U) / 100U;
+
+        return (kpa > PRESSURE_DISPLAY_MAX) ?
+               PRESSURE_DISPLAY_MAX : (uint16_t)kpa;
+    }
+
+    return pressure_hundredths_to_display(hundredths);
+}
+
+static int8_t pressure_decimal_position(uint32_t hundredths,
+                                        UnitLedUnit_t unit)
 {
     /* 数码管段码中的 DP 属于小数点左侧的那一位。 */
+    if (unit == UNIT_LED_KPA)
+    {
+        return -1;
+    }
+
     if (hundredths <= 999U)
     {
         return 0; /* X.XX */
@@ -192,10 +213,10 @@ static void pressure_refresh_frame(void)
 
     actual_hundredths = pressure_unit_hundredths(s_actual_pressure_pa, unit);
     target_hundredths = pressure_unit_hundredths(s_target_pressure_pa, unit);
-    actual_value = pressure_hundredths_to_display(actual_hundredths);
-    target_value = pressure_hundredths_to_display(target_hundredths);
-    actual_decimal_position = pressure_decimal_position(actual_hundredths);
-    target_decimal_position = pressure_decimal_position(target_hundredths);
+    actual_value = pressure_value_to_display(actual_hundredths, unit);
+    target_value = pressure_value_to_display(target_hundredths, unit);
+    actual_decimal_position = pressure_decimal_position(actual_hundredths, unit);
+    target_decimal_position = pressure_decimal_position(target_hundredths, unit);
 
     /*
      * 上排使用 Q2~Q4，下排使用 Q5~Q7。
@@ -234,8 +255,10 @@ void pressure_display_set_actual_pa(uint32_t pressure_pa)
 
 uint16_t pressure_display_get_actual(void)
 {
-    return pressure_hundredths_to_display(
-        pressure_unit_hundredths(s_actual_pressure_pa, unit_led_get_current()));
+    UnitLedUnit_t unit = unit_led_get_current();
+
+    return pressure_value_to_display(
+        pressure_unit_hundredths(s_actual_pressure_pa, unit), unit);
 }
 
 void pressure_display_set_target(uint32_t value)
@@ -246,8 +269,10 @@ void pressure_display_set_target(uint32_t value)
 
 uint16_t pressure_display_get_target(void)
 {
-    return pressure_hundredths_to_display(
-        pressure_unit_hundredths(s_target_pressure_pa, unit_led_get_current()));
+    UnitLedUnit_t unit = unit_led_get_current();
+
+    return pressure_value_to_display(
+        pressure_unit_hundredths(s_target_pressure_pa, unit), unit);
 }
 
 uint32_t pressure_display_get_target_pa(void)
@@ -260,7 +285,22 @@ void pressure_display_target_increase(void)
     UnitLedUnit_t unit = unit_led_get_current();
     uint32_t hundredths = pressure_unit_hundredths(s_target_pressure_pa, unit);
 
-    /* 当前单位已到 999.00 时保持不变；9.99 和 99.9 仍可跨档增加。 */
+    if (unit == UNIT_LED_KPA)
+    {
+        uint32_t kpa = (hundredths + 50U) / 100U;
+
+        /* KPA 固定按 1 kPa 调整，显示上限为 999。 */
+        if (kpa < PRESSURE_DISPLAY_MAX)
+        {
+            ++kpa;
+            s_target_pressure_pa = pressure_unit_hundredths_to_pa(kpa * 100U,
+                                                                  unit);
+            pressure_refresh_frame();
+        }
+        return;
+    }
+
+    /* 其他单位仍按当前显示精度的最小步进调整。 */
     if (hundredths < PRESSURE_INPUT_MAX)
     {
         /* 按当前显示精度增加一个最小步进，再换算回内部单位。 */
@@ -290,7 +330,22 @@ void pressure_display_target_decrease(void)
     UnitLedUnit_t unit = unit_led_get_current();
     uint32_t hundredths = pressure_unit_hundredths(s_target_pressure_pa, unit);
 
-    /* 当前单位已到 0.00 时保持不变，不允许继续减小。 */
+    if (unit == UNIT_LED_KPA)
+    {
+        uint32_t kpa = (hundredths + 50U) / 100U;
+
+        /* KPA 固定按 1 kPa 调整，显示下限为 000。 */
+        if (kpa > 0U)
+        {
+            --kpa;
+            s_target_pressure_pa = pressure_unit_hundredths_to_pa(kpa * 100U,
+                                                                  unit);
+            pressure_refresh_frame();
+        }
+        return;
+    }
+
+    /* 其他单位仍按当前显示精度的最小步进调整。 */
     if (hundredths > 0U)
     {
         /* 按当前显示精度减少一个最小步进，再换算回内部单位。 */

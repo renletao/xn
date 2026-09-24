@@ -27,7 +27,8 @@ static uint32_t s_pump_toggle_target_pa;
 static uint8_t s_pump_toggle_mode;
 
 /* LED状态只在收到U2确认后更新，避免发送失败时本地状态假成功。 */
-static uint8_t s_remote_led_state = UART_COMMAND_LED_ON;
+/* U2 上电时 PB3 默认熄灭，U1 先以同一状态作为切换基准。 */
+static uint8_t s_remote_led_state = UART_COMMAND_LED_OFF;
 
 static uint8_t uart_control_try_lock(void)
 {
@@ -121,7 +122,7 @@ void uart_control_init(void)
     s_result = UART_CONTROL_RESULT_IDLE;
     s_response_cmd = 0U;
     s_response_length = 0U;
-    s_remote_led_state = UART_COMMAND_LED_ON;
+    s_remote_led_state = UART_COMMAND_LED_OFF;
     s_charging_status_pending = 0U;
     s_charging_state = UART_COMMAND_CHARGING_OFF;
     s_battery_level = 0U;

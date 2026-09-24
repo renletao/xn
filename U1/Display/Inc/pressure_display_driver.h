@@ -9,7 +9,7 @@
 /* 设置参数按 100 倍传入，999.00 对应 99900。 */
 #define PRESSURE_INPUT_MAX (PRESSURE_DISPLAY_MAX * 100U)
 
-/* 内部压力统一使用 Pa，确保 PSI 和 KPA 的最小显示步进不会被舍入丢失。 */
+/* 内部压力统一使用 Pa，单位切换和 KPA 的整数显示都基于同一物理值换算。 */
 #define PRESSURE_BASE_UNIT_PA 1U
 
 /* 初始化实际值和目标值，并刷新显示缓存。 */
@@ -26,9 +26,9 @@ void pressure_display_set_target(uint32_t value);
 uint16_t pressure_display_get_target(void);
 /* 获取当前目标压力的 Pa 整数值，供 CMD=0x03 压力泵控制使用。 */
 uint32_t pressure_display_get_target_pa(void);
-/* 按当前单位的最小显示步进增加目标值，到 999.00 时保持不变。 */
+/* 增加目标值；KPA 按 1 kPa 步进，其他单位按当前显示精度步进。 */
 void pressure_display_target_increase(void);
-/* 按当前单位的最小显示步进减少目标值，到 0.00 时保持不变。 */
+/* 减少目标值；KPA 按 1 kPa 步进，其他单位按当前显示精度步进。 */
 void pressure_display_target_decrease(void);
 
 /* 单位切换后重新换算并刷新实际值、目标值的显示缓存。 */

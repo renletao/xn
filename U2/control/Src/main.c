@@ -77,6 +77,9 @@ int main(void)
     /* 接收 U1 发来的 AA55 控制帧，处理状态查询和压力泵控制。 */
     uart_command_task();
 
+    /* 休眠握手完成后立即处理 STOP，避免再跑一轮传感器和泵控制任务。 */
+    power_manager_task();
+
     /* WF183D 已完成上电去皮：每秒查询并更新内部传感器域气压。 */
 #if WF183D_USE_REAL_SENSOR
     wf183d_task();
@@ -85,7 +88,6 @@ int main(void)
     /* 按模式、实时气压和目标气压选择压力泵或停止输出。 */
     uart_command_pump_task();
 
-    power_manager_task();
   }
 }
 

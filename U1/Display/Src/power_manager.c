@@ -103,6 +103,7 @@ static void power_pulse_u2(void)
 static uint8_t power_enter_stop(void)
 {
     uint8_t reason;
+    uint8_t local_wake;
     uint32_t primask;
 
     s_wake_flags = 0U;
@@ -118,12 +119,22 @@ static uint8_t power_enter_stop(void)
         (HAL_GPIO_ReadPin(U1_WAKE_LINK_PORT, U1_WAKE_LINK_PIN) ==
          GPIO_PIN_SET))
     {
+        reason = s_wake_flags;
+        local_wake = ((reason & U1_WAKE_LOCAL_EVENT) != 0U) ||
+                     (HAL_GPIO_ReadPin(U1_WAKE_LOCAL_PORT, U1_WAKE_LOCAL_PIN) ==
+                      GPIO_PIN_RESET);
         power_config_running_inputs();
         key_init();
         led_init();
         display_control_refresh();
         led_set_enabled(0U);
         uart_control_resume();
+        s_wake_flags = 0U;
+        if (local_wake != 0U)
+        {
+            /* U1 stayed awake; wake U2 if it already committed this request. */
+            power_pulse_u2();
+        }
         return 0U;
     }
 
@@ -137,6 +148,10 @@ static uint8_t power_enter_stop(void)
         (HAL_GPIO_ReadPin(U1_WAKE_LINK_PORT, U1_WAKE_LINK_PIN) ==
          GPIO_PIN_SET))
     {
+        reason = s_wake_flags;
+        local_wake = ((reason & U1_WAKE_LOCAL_EVENT) != 0U) ||
+                     (HAL_GPIO_ReadPin(U1_WAKE_LOCAL_PORT, U1_WAKE_LOCAL_PIN) ==
+                      GPIO_PIN_RESET);
         if (primask == 0U)
         {
             __enable_irq();
@@ -147,6 +162,12 @@ static uint8_t power_enter_stop(void)
         display_control_refresh();
         led_set_enabled(0U);
         uart_control_resume();
+        s_wake_flags = 0U;
+        if (local_wake != 0U)
+        {
+            /* U1 stayed awake; wake U2 if it already committed this request. */
+            power_pulse_u2();
+        }
         return 0U;
     }
 

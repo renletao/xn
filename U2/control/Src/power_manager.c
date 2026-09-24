@@ -68,20 +68,20 @@ static void power_config_low_leakage(void)
   gpio.Speed = GPIO_SPEED_FREQ_LOW;
   gpio.Alternate = 0U;
   gpio.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 |
-             GPIO_PIN_4 | GPIO_PIN_6;
+             GPIO_PIN_4 | GPIO_PIN_6 | GPIO_PIN_7;
   HAL_GPIO_Init(GPIOA, &gpio);
-  gpio.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_3 | GPIO_PIN_4 |
-             GPIO_PIN_5;
+  gpio.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 |
+             GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6;
   HAL_GPIO_Init(GPIOB, &gpio);
   gpio.Pin = GPIO_PIN_1;
   HAL_GPIO_Init(GPIOC, &gpio);
 }
 
-static void power_pulse_u1(void)
+static uint8_t power_pulse_u1(void)
 {
   if (HAL_GPIO_ReadPin(PIN_WKUP_PORT, U2_WAKE_LINK_PIN) != GPIO_PIN_RESET)
   {
-    return;
+    return 0U;
   }
   HAL_NVIC_DisableIRQ(EXTI4_15_IRQn);
   HAL_GPIO_WritePin(PIN_WKUP_PORT, U2_WAKE_LINK_PIN, GPIO_PIN_SET);
@@ -91,6 +91,7 @@ static void power_pulse_u1(void)
   power_gpio_config(PIN_WKUP_PORT, U2_WAKE_LINK_PIN,
                     GPIO_MODE_INPUT, GPIO_PULLDOWN);
   __HAL_GPIO_EXTI_CLEAR_IT(U2_WAKE_LINK_PIN);
+  return 1U;
 }
 
 static void power_restore(uint8_t reason)
@@ -112,11 +113,14 @@ static void power_restore(uint8_t reason)
   {
     s_usb_notify_pending = 1U;
   }
+  /* A wake event is consumed by this restore sequence. */
+  s_wake_flags = 0U;
 }
 
 static void power_enter_stop(void)
 {
   uint8_t reason;
+  uint8_t local_wake;
   uint32_t primask;
 
   s_wake_flags = 0U;
@@ -134,7 +138,14 @@ static void power_enter_stop(void)
       (HAL_GPIO_ReadPin(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN) == GPIO_PIN_RESET) ||
       (HAL_GPIO_ReadPin(PIN_WKUP_PORT, U2_WAKE_LINK_PIN) == GPIO_PIN_SET))
   {
-    power_restore(0U);
+    reason = s_wake_flags;
+    local_wake = (HAL_GPIO_ReadPin(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN) ==
+                  GPIO_PIN_RESET);
+    if (local_wake != 0U)
+    {
+      reason |= U2_WAKE_LOCAL_EVENT;
+    }
+    power_restore(reason);
     return;
   }
 
@@ -146,11 +157,18 @@ static void power_enter_stop(void)
       (HAL_GPIO_ReadPin(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN) == GPIO_PIN_RESET) ||
       (HAL_GPIO_ReadPin(PIN_WKUP_PORT, U2_WAKE_LINK_PIN) == GPIO_PIN_SET))
   {
+    reason = s_wake_flags;
+    local_wake = (HAL_GPIO_ReadPin(PIN_USBIN_PORT, U2_WAKE_LOCAL_PIN) ==
+                  GPIO_PIN_RESET);
+    if (local_wake != 0U)
+    {
+      reason |= U2_WAKE_LOCAL_EVENT;
+    }
     if (primask == 0U)
     {
       __enable_irq();
     }
-    power_restore(0U);
+    power_restore(reason);
     return;
   }
 
@@ -202,12 +220,19 @@ void power_manager_task(void)
     {
       power_enter_stop();
     }
+    else
+    {
+      /* READY may already have put U1 into its final STOP preparation. */
+      (void)power_pulse_u1();
+    }
   }
 
   if (s_usb_notify_pending != 0U && usbin_is_inserted() != 0U)
   {
-    power_pulse_u1();
-    s_usb_notify_pending = 0U;
+    if (power_pulse_u1() != 0U)
+    {
+      s_usb_notify_pending = 0U;
+    }
   }
 }
 
