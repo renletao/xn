@@ -22,6 +22,9 @@ extern "C" {
 #define CHARGE_TIMEOUT_STEP_MS          1024U
 #define CHARGE_TIMEOUT_MAX_TICKS        21600U
 
+/* 临时测试开关：1=忽略电池低压保护，0=启用电池低压保护。USB 禁止电机仍有效。 */
+#define CHARGE_DISABLE_LOW_PROTECTION   1U
+
 /** 充电管理的公开状态。 */
 typedef enum
 {
