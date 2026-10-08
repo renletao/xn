@@ -51,8 +51,8 @@ int main(void)
 
   /* 初始化充电策略：默认允许充电，但 USB 未插入时保持 IP2326 关闭。 */
   charge_init();
-  /* 进入主循环前先完成 128 个原始电池采样，建立初始 BatLevel。 */
-  adc_battery_startup_sample(0U, 0U);
+  /* 首次分档使用当前 USB 原始状态；主循环启动后仍以消抖状态为准。 */
+  adc_battery_startup_sample(usbin_read_raw(), 0U);
   power_manager_init();
 
   while (1)

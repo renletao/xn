@@ -92,6 +92,8 @@
 
 /* ADC conversion and board scaling parameters. */
 #define PY32_U1_VREFINT_MV          1200U
+#define PY32_U1_BATTERY_DIVIDER_NUM 11U
+#define PY32_U1_BATTERY_DIVIDER_DEN 1U
 #define PY32_U1_MOTO_DIVIDER_NUM    1U
 #define PY32_U1_MOTO_DIVIDER_DEN    1U
 #define PY32_U1_12V_DIVIDER_NUM     1U

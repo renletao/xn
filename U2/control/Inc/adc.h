@@ -50,11 +50,11 @@ void adc_resume(void);
 void adc_task_100ms(void);
 /** 电池/充电电流采样入口；主循环可高频调用，内部按 10 ms 节拍运行。 */
 void adc_battery_task_100hz(uint8_t usb_inserted, uint8_t motor_running);
-/** 上电阶段连续采集 128 个原始电池样本，并初始化电量等级。 */
+/** 上电采集 128 个电池样本；USB 已插入时按充电阈值初始化等级。 */
 void adc_battery_startup_sample(uint8_t usb_inserted, uint8_t motor_running);
 /** 返回当前电量等级：0 满电，3 低电。 */
 uint8_t adc_get_battery_level(void);
-/** 返回最近一次完整 64 点平均是否落在低电档。 */
+/** 返回最近一次电池端 mV 平均是否落在低电档。 */
 uint8_t adc_battery_is_low(void);
 /** 充电超时按一级向满电方向推进电量等级。 */
 void adc_battery_charge_timeout_step(void);

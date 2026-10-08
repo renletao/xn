@@ -5,7 +5,7 @@
   * 本模块位于 USBIN、IP2326 和 ADC 驱动之上，负责充电状态、电机保护和低电保护。
   * PA5 的 USB 插入检测仍由 usbin.c 完成，PA2 的芯片使能仍由 ip2326.c 完成。
   *
-  * 电量由 adc.c 按 ADC 原始码分档得到，不使用百分比换算。
+  * 电量由 adc.c 按电池端实际毫伏值分档得到，不使用百分比换算。
   */
 
 #ifndef __U1_CHARGE_H
@@ -22,7 +22,7 @@ extern "C" {
 #define CHARGE_TIMEOUT_STEP_MS          1024U
 #define CHARGE_TIMEOUT_MAX_TICKS        21600U
 
-/* 临时测试开关：1=忽略电池低压保护，0=启用电池低压保护。USB 禁止电机仍有效。 */
+/* 当前配置：1=关闭电池低压保护，0=启用电池低压保护。USB 禁止电机始终有效。 */
 #define CHARGE_DISABLE_LOW_PROTECTION   1U
 
 /** 充电管理的公开状态。 */

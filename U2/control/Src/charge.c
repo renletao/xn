@@ -81,6 +81,7 @@ void charge_init(void)
   charge_allowed = 1U;
   charge_output_state = 0xFFU;
   charge_state = CHARGE_STATE_IDLE;
+  /* 初始化时清除锁存；启用保护后，运行中的锁存只允许 USB 插入时清除。 */
   low_protection_active = 0U;
   charge_timeout_tick = HAL_GetTick();
   charge_timeout_count = 0U;
@@ -101,7 +102,7 @@ void charge_task(void)
   charge_update_state(usb_inserted);
 
 #if CHARGE_DISABLE_LOW_PROTECTION
-  /* 临时测试模式：不锁存电池低压，USB 禁止电机仍由启动条件单独处理。 */
+  /* 当前配置关闭低压保护；USB 禁止电机仍由启动条件单独处理。 */
   low_protection_active = 0U;
 #else
   if (usb_inserted != 0U)
@@ -207,6 +208,6 @@ uint8_t charge_battery_mv_to_percent(uint32_t battery_mv)
 
 uint8_t charge_get_battery_percent(void)
 {
-  /* g_adc_data.battery_mv 已由 adc_task_100ms() 换算为实际电池电压。 */
+  /* g_adc_data.battery_mv 已由 adc_battery_task_100hz() 换算为实际电池电压。 */
   return charge_battery_mv_to_percent(g_adc_data.battery_mv);
 }
