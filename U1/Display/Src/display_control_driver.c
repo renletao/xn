@@ -49,6 +49,8 @@ void display_control_refresh(void)
 void display_control_scan(void)
 {
     uint32_t s1_events;
+    uint32_t s2_events;
+    uint32_t s4_events;
 
     uint32_t s3_events;
     uint8_t charging;
@@ -101,15 +103,21 @@ void display_control_scan(void)
         pressure_display_on_unit_changed();
     }
 
-    /* S4 短按：目标压力值加 1，最大保持在 999。 */
-    if ((key_get_event(KEY_S4) & KEY_EVENT_SHORT_RELEASE) != 0U)
+    /* S4 短按调整一次；长按后持续增加，释放即停止。 */
+    s4_events = key_get_event(KEY_S4);
+    if ((s4_events & (KEY_EVENT_SHORT_RELEASE |
+                      KEY_EVENT_LONG_PRESS |
+                      KEY_EVENT_LONG_HOLD)) != 0U)
     {
         s_key_flags |= DISPLAY_KEY_FLAG_S4;
         pressure_display_target_increase();
     }
 
-    /* S2 短按：目标压力值减 1，最小保持在 000。 */
-    if ((key_get_event(KEY_S2) & KEY_EVENT_SHORT_RELEASE) != 0U)
+    /* S2 短按调整一次；长按后持续减少，释放即停止。 */
+    s2_events = key_get_event(KEY_S2);
+    if ((s2_events & (KEY_EVENT_SHORT_RELEASE |
+                      KEY_EVENT_LONG_PRESS |
+                      KEY_EVENT_LONG_HOLD)) != 0U)
     {
         s_key_flags |= DISPLAY_KEY_FLAG_S2;
         pressure_display_target_decrease();

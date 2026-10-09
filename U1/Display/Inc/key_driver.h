@@ -16,11 +16,17 @@
 #define KEY_DEBOUNCE_MS          30U   /* 输入稳定超过该时间才确认状态改变。 */
 #define KEY_LONG_PRESS_MS        800U  /* S1 长按事件的触发时间。 */
 #define KEY_LONG_HOLD_MS         200U  /* S1 长按后重复产生保持事件的周期。 */
+#define KEY_ADJUST_LONG_PRESS_MS 800U  /* S2/S4 进入连续调整的按住时间。 */
+#define KEY_ADJUST_REPEAT_MS     200U  /* S2/S4 连续调整的重复周期。 */
 #define KEY_S3_LONG_PRESS_MS     3000U /* S3 恢复编程模式的长按时间。 */
 
 #define KEY_DEBOUNCE_TICKS       (KEY_DEBOUNCE_MS / KEY_SCAN_PERIOD_MS)
 #define KEY_LONG_PRESS_TICKS     (KEY_LONG_PRESS_MS / KEY_SCAN_PERIOD_MS)
 #define KEY_LONG_HOLD_TICKS      (KEY_LONG_HOLD_MS / KEY_SCAN_PERIOD_MS)
+#define KEY_ADJUST_LONG_PRESS_TICKS \
+    (KEY_ADJUST_LONG_PRESS_MS / KEY_SCAN_PERIOD_MS)
+#define KEY_ADJUST_REPEAT_TICKS \
+    (KEY_ADJUST_REPEAT_MS / KEY_SCAN_PERIOD_MS)
 #define KEY_S3_LONG_PRESS_TICKS  (KEY_S3_LONG_PRESS_MS / KEY_SCAN_PERIOD_MS)
 
 typedef enum

@@ -144,13 +144,33 @@ void key_scan(void)
     for (i = 0U; i < KEY_COUNT; ++i)
     {
         KeyState_t *key = &s_keys[i];
-        /* S3 使用 3 秒门限，其余按键沿用默认长按门限。 */
-        uint16_t long_press_ticks = (i == KEY_S3) ?
-                                    KEY_S3_LONG_PRESS_TICKS :
-                                    KEY_LONG_PRESS_TICKS;
+        uint16_t long_press_ticks;
+        uint16_t repeat_ticks = 0U;
+        uint8_t raw_pressed;
+
+        if (i == KEY_S3)
+        {
+            long_press_ticks = KEY_S3_LONG_PRESS_TICKS;
+        }
+        else if ((i == KEY_S2) || (i == KEY_S4))
+        {
+            long_press_ticks = KEY_ADJUST_LONG_PRESS_TICKS;
+        }
+        else
+        {
+            long_press_ticks = KEY_LONG_PRESS_TICKS;
+        }
+        if (i == KEY_S1)
+        {
+            repeat_ticks = KEY_LONG_HOLD_TICKS;
+        }
+        else if ((i == KEY_S2) || (i == KEY_S4))
+        {
+            repeat_ticks = KEY_ADJUST_REPEAT_TICKS;
+        }
         /* 低电平有效，先转换成统一的 1=按下、0=释放。 */
-        uint8_t raw_pressed =
-            (HAL_GPIO_ReadPin(key->port, key->pin) == GPIO_PIN_RESET) ? 1U : 0U;
+        raw_pressed = (HAL_GPIO_ReadPin(key->port, key->pin) == GPIO_PIN_RESET) ?
+                      1U : 0U;
 
         /*
          * 只有同一个电平连续稳定达到消抖次数，才更新 pressed 状态。
@@ -181,10 +201,10 @@ void key_scan(void)
                 {
                     /*
                      * 释放时根据是否已经触发长按，区分短按释放和长按释放。
-                     * S1、S3 支持长按；其他按键只会产生短按释放事件。
+                     * 支持长按的按键在长按后只报告 LONG_RELEASE，避免
+                     * S2/S4 连续调整结束时额外执行一次短按步进。
                      */
-                    key->events |= (((i == KEY_S1) || (i == KEY_S3)) &&
-                                    (key->long_sent != 0U)) ?
+                    key->events |= (key->long_sent != 0U) ?
                                    KEY_EVENT_LONG_RELEASE : KEY_EVENT_SHORT_RELEASE;
                     key->hold_ticks = 0U;
                     key->long_sent = 0U;
@@ -204,8 +224,9 @@ void key_scan(void)
                 ++key->hold_ticks;
             }
 
-            /* S3 的 3 秒长按用于恢复编程模式，S1 保留原有长按功能。 */
-            if (((i == KEY_S1) || (i == KEY_S3)) &&
+            /* S1/S3 使用功能长按；S2/S4 使用长按连续调整。 */
+            if (((i == KEY_S1) || (i == KEY_S2) ||
+                 (i == KEY_S3) || (i == KEY_S4)) &&
                 (key->long_sent == 0U) &&
                 (key->hold_ticks >= long_press_ticks))
             {
@@ -213,10 +234,10 @@ void key_scan(void)
                 key->long_sent = 1U;
                 key->events |= KEY_EVENT_LONG_PRESS;
             }
-            /* 只有 S1 需要周期性的 LONG_HOLD 事件，S3 不重复上报。 */
-            else if ((i == KEY_S1) && (key->long_sent != 0U) &&
-                     (KEY_LONG_HOLD_TICKS != 0U) &&
-                     ((key->hold_ticks % KEY_LONG_HOLD_TICKS) == 0U))
+            /* S1 保留保持事件；S2/S4 按独立周期重复调整。 */
+            else if ((key->long_sent != 0U) &&
+                     (repeat_ticks != 0U) &&
+                     ((key->hold_ticks % repeat_ticks) == 0U))
             {
                 key->events |= KEY_EVENT_LONG_HOLD;
             }
