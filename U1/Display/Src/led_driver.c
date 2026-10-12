@@ -39,12 +39,13 @@ static const LED_Pin_t s_low_pins[LED_MATRIX_COLS] =
 };
 
 /* 显示缓存。每一位对应一条低边线，bit=1 表示该行的 LED 点亮。 */
-static uint8_t s_frame[LED_MATRIX_ROWS];
+static volatile uint8_t s_frame[LED_MATRIX_ROWS];
 /* 当前扫描时隙：8 行矩阵、模式/DC、单位、上排 DP、下排 DP。 */
-static uint8_t s_scan_slot;
-static uint32_t s_last_scan_tick;
+static volatile uint8_t s_scan_slot;
 /* 显示总开关；关闭时保留缓存，但所有高低边均输出关闭电平。 */
-static uint8_t s_display_enabled;
+static volatile uint8_t s_display_enabled;
+static volatile uint8_t s_scan_timer_configured;
+static volatile uint8_t s_scan_suspended;
 
 /* L14 是四个压力小数点和两个单位灯共用的低边。 */
 #define LED_DECIMAL_COL 7U
@@ -59,8 +60,45 @@ static uint8_t s_display_enabled;
 /* L14 相关时隙也使用短空白，避免单位/小数点亮度明显偏低。 */
 #define LED_L14_BLANK_CYCLES       240U
 
+/* 系统时钟固定为 24 MHz；2 kHz 时基使 12 个时隙得到约 166.7 Hz 整屏刷新。 */
+#define LED_SCAN_TIMER_RELOAD      ((24000000U / LED_SCAN_TIMER_HZ) - 1U)
+
 /* 前置声明：高边放电函数位于低边关闭函数之前。 */
 static void led_all_low_off(void);
+
+static void led_scan_timer_stop(void)
+{
+    if (s_scan_timer_configured == 0U)
+    {
+        return;
+    }
+
+    TIM14->DIER &= (uint32_t)~TIM_DIER_UIE;
+    TIM14->CR1 &= (uint32_t)~TIM_CR1_CEN;
+    TIM14->SR = (uint32_t)~TIM_SR_UIF;
+    NVIC_DisableIRQ(TIM14_IRQn);
+    NVIC_ClearPendingIRQ(TIM14_IRQn);
+}
+
+static void led_scan_timer_start(void)
+{
+    /* STOP 唤醒后外设时钟门控状态可能变化，每次启动都重新打开时钟。 */
+    __HAL_RCC_TIM14_CLK_ENABLE();
+
+    /* 每次启动都重写时基，覆盖 STOP 唤醒后定时器寄存器被复位的情况。 */
+    TIM14->PSC = 0U;
+    TIM14->ARR = LED_SCAN_TIMER_RELOAD;
+    TIM14->EGR = TIM_EGR_UG;
+    s_scan_timer_configured = 1U;
+
+    TIM14->CNT = 0U;
+    TIM14->SR = (uint32_t)~TIM_SR_UIF;
+    TIM14->DIER |= TIM_DIER_UIE;
+    NVIC_SetPriority(TIM14_IRQn, 1U);
+    NVIC_ClearPendingIRQ(TIM14_IRQn);
+    NVIC_EnableIRQ(TIM14_IRQn);
+    TIM14->CR1 |= TIM_CR1_CEN;
+}
 
 static void led_config_pin_output(const LED_Pin_t *pin)
 {
@@ -244,6 +282,9 @@ void led_init(void)
 {
     uint32_t i;
 
+    /* 重新初始化 GPIO 前先停止旧的扫描中断，避免唤醒时并发改脚。 */
+    led_scan_timer_stop();
+
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -264,25 +305,17 @@ void led_init(void)
     led_all_low_off();
     /* 上电默认允许显示。 */
     s_display_enabled = 1U;
-    /* 从 Q1 开始扫描，并以当前 HAL tick 作为第一个时间基准。 */
+    /* 从 Q1 开始扫描；实际节拍由 TIM14 固定产生。 */
     s_scan_slot = 0U;
-    s_last_scan_tick = HAL_GetTick();
+    led_scan_timer_start();
 }
 
 void led_scan(void)
 {
-    uint32_t now = HAL_GetTick();
     uint32_t blank_cycles;
 
-    /* 使用无符号差值，兼容 HAL tick 溢出后的时间比较。 */
-    if ((uint32_t)(now - s_last_scan_tick) < LED_SCAN_STEP_MS)
-    {
-        return;
-    }
-    s_last_scan_tick = now;
-
     /* 显示关闭时保持所有输出关闭，不执行正常矩阵扫描。 */
-    if (s_display_enabled == 0U)
+    if ((s_display_enabled == 0U) || (s_scan_suspended != 0U))
     {
         led_all_high_off();
         led_all_low_off();
@@ -337,6 +370,23 @@ void led_scan(void)
     }
 }
 
+void led_scan_suspend(void)
+{
+    s_scan_suspended = 1U;
+    led_scan_timer_stop();
+    led_all_high_off();
+    led_all_low_off();
+}
+
+void led_scan_resume(void)
+{
+    s_scan_suspended = 0U;
+    if (s_display_enabled != 0U)
+    {
+        led_scan_timer_start();
+    }
+}
+
 void led_set_enabled(uint8_t enabled)
 {
     /* 统一保存为 0/1，避免调用方传入其他数值造成状态不明确。 */
@@ -344,9 +394,17 @@ void led_set_enabled(uint8_t enabled)
 
     if (s_display_enabled == 0U)
     {
-        /* 立即关闭输出，不必等待下一次 1 ms 扫描时隙。 */
+        /* 先停扫描中断，再立即关闭输出，避免 GPIO 与扫描 ISR 并发。 */
+        led_scan_timer_stop();
         led_all_high_off();
         led_all_low_off();
+    }
+    else
+    {
+        if (s_scan_suspended == 0U)
+        {
+            led_scan_timer_start();
+        }
     }
 }
 

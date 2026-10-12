@@ -5,14 +5,17 @@
 #include "py32f0xx_hal.h"
 #include "py32_u1_hw_config.h"
 
-#define LED_SCAN_STEP_MS       1U  /* 每 1 ms 切换一次扫描时隙。 */
+#define LED_SCAN_TIMER_HZ      2000U /* TIM14 每秒触发 2000 次扫描。 */
 #define LED_MATRIX_ROWS        8U  /* Q1~Q8 共 8 路高边公共端。 */
 #define LED_MATRIX_COLS        8U  /* L00~L14 共 8 路低边吸电流线。 */
 
 /* 初始化 LED GPIO、显示缓存和扫描状态。 */
 void led_init(void);
-/* 周期调用，完成一整个矩阵的动态扫描。 */
+/* 由 TIM14 更新中断调用，完成一个扫描时隙。 */
 void led_scan(void);
+/* 按键复用低边 GPIO 前暂停扫描，恢复输出后再继续扫描。 */
+void led_scan_suspend(void);
+void led_scan_resume(void);
 /* 设置整个 LED 矩阵是否输出；0=关闭显示，非 0=恢复显示。 */
 void led_set_enabled(uint8_t enabled);
 /* 查询当前 LED 矩阵是否处于显示状态。 */

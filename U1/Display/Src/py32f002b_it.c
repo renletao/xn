@@ -34,6 +34,7 @@
 #include "py32f002b_it.h"
 #include "uart_control_driver.h"
 #include "power_manager.h"
+#include "led_driver.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* Private typedef -----------------------------------------------------------*/
@@ -87,7 +88,7 @@ void PendSV_Handler(void)
   */
 void SysTick_Handler(void)
 {
-  /* Keep the HAL time base running for led_scan(), key_scan() and delays. */
+  /* Keep the HAL time base running for key_scan(), delays and periodic tasks. */
   HAL_IncTick();
 }
 
@@ -108,6 +109,16 @@ void SysTick_Handler(void)
 void USART1_IRQHandler(void)
 {
   uart_control_irq_handler();
+}
+
+/* TIM14 固定以 2 kHz 驱动 LED 矩阵，避免主循环和 UART 阻塞造成显示抖动。 */
+void TIM14_IRQHandler(void)
+{
+  if ((TIM14->SR & TIM_SR_UIF) != 0U)
+  {
+    TIM14->SR = (uint32_t)~TIM_SR_UIF;
+    led_scan();
+  }
 }
 
 void EXTI0_1_IRQHandler(void)

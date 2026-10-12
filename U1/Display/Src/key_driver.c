@@ -1,5 +1,6 @@
 #include "key_driver.h"
 #include "py32f002b_hal_gpio.h"
+#include "led_driver.h"
 
 typedef struct
 {
@@ -139,6 +140,7 @@ void key_scan(void)
     s_last_scan_tick = now;
 
     /* 低边线与按键复用，采样前必须全部切换为输入上拉。 */
+    led_scan_suspend();
     key_config_input();
 
     for (i = 0U; i < KEY_COUNT; ++i)
@@ -246,6 +248,7 @@ void key_scan(void)
 
     /* 恢复 LED 低边输出模式，且不改动之前保存的输出电平。 */
     key_config_output();
+    led_scan_resume();
 }
 
 uint32_t key_get_event(KeyId_t key)

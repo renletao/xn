@@ -1,7 +1,7 @@
 #include "mode_led_driver.h"
 
 /* 保存当前选择，切换灯的同时更新，业务层可通过接口随时读取。 */
-static ModeLedMode_t s_current_mode;
+static volatile ModeLedMode_t s_current_mode;
 
 void mode_led_init(void)
 {

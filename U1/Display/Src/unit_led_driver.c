@@ -1,7 +1,7 @@
 #include "unit_led_driver.h"
 
 /* 保存当前选择，切换灯的同时更新，业务层可通过接口随时读取。 */
-static UnitLedUnit_t s_current_unit;
+static volatile UnitLedUnit_t s_current_unit;
 
 void unit_led_init(void)
 {

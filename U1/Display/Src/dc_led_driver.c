@@ -1,6 +1,6 @@
 #include "dc_led_driver.h"
 
-static uint8_t s_charging;
+static volatile uint8_t s_charging;
 
 void dc_led_init(void)
 {
