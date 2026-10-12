@@ -111,12 +111,20 @@ void USART1_IRQHandler(void)
   uart_control_irq_handler();
 }
 
-/* TIM14 固定以 4 kHz 驱动 LED 矩阵，避免主循环和 UART 阻塞造成显示抖动。 */
+/* TIM14 用更新事件换行、比较事件关断 LED，避免换行时产生鬼影和闪烁。 */
 void TIM14_IRQHandler(void)
 {
-  if ((TIM14->SR & TIM_SR_UIF) != 0U)
+  uint32_t status = TIM14->SR;
+
+  /* 按 PY32 定义写反码清除已处理标志，先锁存状态再处理两个时间点。 */
+  TIM14->SR = (uint32_t)~status;
+  if ((status & TIM_SR_CC1IF) != 0U)
   {
-    TIM14->SR = (uint32_t)~TIM_SR_UIF;
+    /* 当前时隙结束，先关断全部电流并释放公共端。 */
+    led_scan_blank();
+  }
+  if ((status & TIM_SR_UIF) != 0U)
+  {
     led_scan();
   }
 }

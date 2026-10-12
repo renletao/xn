@@ -55,12 +55,10 @@ static volatile uint8_t s_scan_suspended;
 #define LED_ACTUAL_DP_SCAN_SLOT  (LED_MATRIX_ROWS + 2U)
 #define LED_TARGET_DP_SCAN_SLOT  (LED_MATRIX_ROWS + 3U)
 #define LED_SCAN_SLOT_COUNT      (LED_MATRIX_ROWS + 4U)
-/* 普通数字行只需短空白，避免降低整屏亮度。 */
-#define LED_ROW_BLANK_CYCLES       240U
-/* L14 相关时隙也使用短空白，避免单位/小数点亮度明显偏低。 */
-#define LED_L14_BLANK_CYCLES       240U
+/* 关断比较点提前 20 us，给 SS8550 和公共端留出固定消隐时间。 */
+#define LED_SCAN_BLANK_TICKS       480U
 
-/* 系统时钟固定为 24 MHz；4 kHz 时基使 12 个时隙得到约 333.3 Hz 整屏刷新。 */
+/* 系统时钟固定为 24 MHz；3 kHz 时基使 12 个时隙得到 250 Hz 整屏刷新。 */
 #define LED_SCAN_TIMER_RELOAD      ((24000000U / LED_SCAN_TIMER_HZ) - 1U)
 
 /* 按实际 GPIO 端口分组的高边和低边掩码，刷新路径直接写 BSRR/BRR。 */
@@ -118,9 +116,10 @@ static void led_scan_timer_stop(void)
         return;
     }
 
-    TIM14->DIER &= (uint32_t)~TIM_DIER_UIE;
+    TIM14->DIER &= (uint32_t)~(TIM_DIER_UIE | TIM_DIER_CC1IE);
     TIM14->CR1 &= (uint32_t)~TIM_CR1_CEN;
-    TIM14->SR = (uint32_t)~TIM_SR_UIF;
+    TIM14->CCER &= (uint32_t)~TIM_CCER_CC1E;
+    TIM14->SR = (uint32_t)~(TIM_SR_UIF | TIM_SR_CC1IF);
     NVIC_DisableIRQ(TIM14_IRQn);
     NVIC_ClearPendingIRQ(TIM14_IRQn);
 }
@@ -133,12 +132,15 @@ static void led_scan_timer_start(void)
     /* 每次启动都重写时基，覆盖 STOP 唤醒后定时器寄存器被复位的情况。 */
     TIM14->PSC = 0U;
     TIM14->ARR = LED_SCAN_TIMER_RELOAD;
+    TIM14->CCR1 = LED_SCAN_TIMER_RELOAD - LED_SCAN_BLANK_TICKS;
+    TIM14->CCMR1 &= (uint32_t)~(TIM_CCMR1_CC1S | TIM_CCMR1_OC1M);
+    TIM14->CCER |= TIM_CCER_CC1E;
     TIM14->EGR = TIM_EGR_UG;
     s_scan_timer_configured = 1U;
 
     TIM14->CNT = 0U;
-    TIM14->SR = (uint32_t)~TIM_SR_UIF;
-    TIM14->DIER |= TIM_DIER_UIE;
+    TIM14->SR = (uint32_t)~(TIM_SR_UIF | TIM_SR_CC1IF);
+    TIM14->DIER |= TIM_DIER_UIE | TIM_DIER_CC1IE;
     NVIC_SetPriority(TIM14_IRQn, 1U);
     NVIC_ClearPendingIRQ(TIM14_IRQn);
     NVIC_EnableIRQ(TIM14_IRQn);
@@ -170,32 +172,6 @@ static void led_all_high_off(void)
     GPIOA->BSRR = LED_HIGH_GPIOA_MASK;
     GPIOB->BSRR = LED_HIGH_GPIOB_MASK;
     GPIOC->BSRR = LED_HIGH_GPIOC_MASK;
-}
-
-static void led_wait_cycles(uint32_t cycles)
-{
-    volatile uint32_t cycle;
-
-    for (cycle = 0U; cycle < cycles; ++cycle)
-    {
-        __NOP();
-    }
-}
-
-static void led_discharge_high_side_rails(uint32_t cycles)
-{
-    /*
-     * PNP 关闭后，L01/L06~L11/L15 会成为悬空公共端。正常矩阵扫描曾给
-     * 这些网络充电，仅关闭 Q 管不能立即消除残留电位；随后拉低 L14 时，
-     * 残留电位会经过未选中行的小数点形成串亮。全部 Q 管关闭后，短暂
-     * 拉低全部低边，让每条实际存在的 LED 通路都能把对应公共端释放，
-     * 再恢复为关闭电平。
-     */
-    GPIOA->BRR = LED_LOW_GPIOA_MASK;
-    GPIOB->BRR = LED_LOW_GPIOB_MASK;
-    GPIOC->BRR = LED_LOW_GPIOC_MASK;
-    led_wait_cycles(cycles);
-    led_all_low_off();
 }
 
 static void led_all_low_off(void)
@@ -306,8 +282,6 @@ void led_init(void)
 
 void led_scan(void)
 {
-    uint32_t blank_cycles;
-
     /* 显示关闭时保持所有输出关闭，不执行正常矩阵扫描。 */
     if ((s_display_enabled == 0U) || (s_scan_suspended != 0U))
     {
@@ -316,15 +290,9 @@ void led_scan(void)
         return;
     }
 
-    /* 先切断电流并关闭高边，再主动释放所有悬空公共端的残留电位。 */
+    /* 更新事件已经由比较事件提前关断；这里再做一次无等待的保险关断。 */
     led_all_low_off();
     led_all_high_off();
-    blank_cycles = ((s_scan_slot == LED_UNIT_SCAN_SLOT) ||
-                    (s_scan_slot == LED_ACTUAL_DP_SCAN_SLOT) ||
-                    (s_scan_slot == LED_TARGET_DP_SCAN_SLOT)) ?
-                   LED_L14_BLANK_CYCLES : LED_ROW_BLANK_CYCLES;
-    led_wait_cycles(blank_cycles);
-    led_discharge_high_side_rails(blank_cycles);
     if (s_scan_slot < LED_MATRIX_ROWS)
     {
         /* 普通矩阵行不驱动 L14，小数点由后面的独立时隙完成。 */
@@ -360,12 +328,24 @@ void led_scan(void)
     }
 }
 
+void led_scan_blank(void)
+{
+    /* 比较事件在更新事件前固定到达；低边保持有效以释放公共端残留电荷。 */
+    led_all_high_off();
+    GPIOA->BRR = LED_LOW_GPIOA_MASK;
+    GPIOB->BRR = LED_LOW_GPIOB_MASK;
+    GPIOC->BRR = LED_LOW_GPIOC_MASK;
+}
+
 void led_scan_suspend(void)
 {
+    /* 停止定时器和关闭 GPIO 必须是一个不可被扫描中断打断的窗口。 */
+    __disable_irq();
     s_scan_suspended = 1U;
     led_scan_timer_stop();
     led_all_high_off();
     led_all_low_off();
+    __enable_irq();
 }
 
 void led_scan_resume(void)
@@ -382,6 +362,8 @@ void led_set_enabled(uint8_t enabled)
     /* 统一保存为 0/1，避免调用方传入其他数值造成状态不明确。 */
     s_display_enabled = (enabled != 0U) ? 1U : 0U;
 
+    /* 显示总开关与定时器/GPIO 必须成组切换，避免半个时隙被重新点亮。 */
+    __disable_irq();
     if (s_display_enabled == 0U)
     {
         /* 先停扫描中断，再立即关闭输出，避免 GPIO 与扫描 ISR 并发。 */
@@ -396,6 +378,7 @@ void led_set_enabled(uint8_t enabled)
             led_scan_timer_start();
         }
     }
+    __enable_irq();
 }
 
 uint8_t led_is_enabled(void)
