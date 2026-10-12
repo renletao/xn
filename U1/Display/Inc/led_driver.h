@@ -5,7 +5,7 @@
 #include "py32f0xx_hal.h"
 #include "py32_u1_hw_config.h"
 
-#define LED_SCAN_TIMER_HZ      2000U /* TIM14 每秒触发 2000 次扫描。 */
+#define LED_SCAN_TIMER_HZ      4000U /* TIM14 每秒触发 4000 次扫描。 */
 #define LED_MATRIX_ROWS        8U  /* Q1~Q8 共 8 路高边公共端。 */
 #define LED_MATRIX_COLS        8U  /* L00~L14 共 8 路低边吸电流线。 */
 

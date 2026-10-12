@@ -111,7 +111,7 @@ void USART1_IRQHandler(void)
   uart_control_irq_handler();
 }
 
-/* TIM14 固定以 2 kHz 驱动 LED 矩阵，避免主循环和 UART 阻塞造成显示抖动。 */
+/* TIM14 固定以 4 kHz 驱动 LED 矩阵，避免主循环和 UART 阻塞造成显示抖动。 */
 void TIM14_IRQHandler(void)
 {
   if ((TIM14->SR & TIM_SR_UIF) != 0U)

@@ -60,11 +60,56 @@ static volatile uint8_t s_scan_suspended;
 /* L14 相关时隙也使用短空白，避免单位/小数点亮度明显偏低。 */
 #define LED_L14_BLANK_CYCLES       240U
 
-/* 系统时钟固定为 24 MHz；2 kHz 时基使 12 个时隙得到约 166.7 Hz 整屏刷新。 */
+/* 系统时钟固定为 24 MHz；4 kHz 时基使 12 个时隙得到约 333.3 Hz 整屏刷新。 */
 #define LED_SCAN_TIMER_RELOAD      ((24000000U / LED_SCAN_TIMER_HZ) - 1U)
+
+/* 按实际 GPIO 端口分组的高边和低边掩码，刷新路径直接写 BSRR/BRR。 */
+#define LED_HIGH_GPIOA_MASK        (GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | \
+                                    GPIO_PIN_4 | GPIO_PIN_7)
+#define LED_HIGH_GPIOB_MASK        (GPIO_PIN_0 | GPIO_PIN_6)
+#define LED_HIGH_GPIOC_MASK        GPIO_PIN_0
+#define LED_LOW_GPIOA_MASK         (GPIO_PIN_0 | GPIO_PIN_5 | GPIO_PIN_6)
+#define LED_LOW_GPIOB_MASK         (GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | \
+                                    GPIO_PIN_7)
+#define LED_LOW_GPIOC_MASK         GPIO_PIN_1
 
 /* 前置声明：高边放电函数位于低边关闭函数之前。 */
 static void led_all_low_off(void);
+
+static void led_low_apply(uint8_t data)
+{
+    uint32_t gpioa_mask;
+    uint32_t gpiob_mask;
+    uint32_t gpioc_mask;
+
+    /* 矩阵 bit 到实际 GPIO 的映射：PA0/PA6/PA5、PB1/PB3/PB2/PB7、PC1。 */
+    gpioa_mask = ((uint32_t)data & 0x41U) |
+                 (((uint32_t)data & 0x80U) >> 2U);
+    gpiob_mask = ((uint32_t)data & 0x02U) |
+                 (((uint32_t)data & 0x04U) << 1U) |
+                 (((uint32_t)data & 0x08U) >> 1U) |
+                 (((uint32_t)data & 0x10U) << 3U);
+    gpioc_mask = ((uint32_t)data & 0x20U) >> 4U;
+
+    if (gpioa_mask != 0U)
+    {
+        GPIOA->BRR = gpioa_mask;
+    }
+    if (gpiob_mask != 0U)
+    {
+        GPIOB->BRR = gpiob_mask;
+    }
+    if (gpioc_mask != 0U)
+    {
+        GPIOC->BRR = gpioc_mask;
+    }
+}
+
+static void led_high_select(const LED_Pin_t *pin)
+{
+    /* 高边低有效；所有其他高边已在本时隙开始处批量关闭。 */
+    pin->port->BRR = pin->pin;
+}
 
 static void led_scan_timer_stop(void)
 {
@@ -118,16 +163,13 @@ static void led_config_pin_output(const LED_Pin_t *pin)
 
 static void led_all_high_off(void)
 {
-    uint32_t i;
-
     /*
      * PNP 高边管低电平导通，因此关闭高边要输出高电平。
      * 切换行时必须先关闭全部 8 路，避免两路公共端同时导通。
      */
-    for (i = 0U; i < LED_MATRIX_ROWS; ++i)
-    {
-        HAL_GPIO_WritePin(s_high_pins[i].port, s_high_pins[i].pin, GPIO_PIN_SET);
-    }
+    GPIOA->BSRR = LED_HIGH_GPIOA_MASK;
+    GPIOB->BSRR = LED_HIGH_GPIOB_MASK;
+    GPIOC->BSRR = LED_HIGH_GPIOC_MASK;
 }
 
 static void led_wait_cycles(uint32_t cycles)
@@ -149,54 +191,31 @@ static void led_discharge_high_side_rails(uint32_t cycles)
      * 拉低全部低边，让每条实际存在的 LED 通路都能把对应公共端释放，
      * 再恢复为关闭电平。
      */
-    uint32_t col;
-
-    for (col = 0U; col < LED_MATRIX_COLS; ++col)
-    {
-        HAL_GPIO_WritePin(s_low_pins[col].port,
-                          s_low_pins[col].pin, GPIO_PIN_RESET);
-    }
+    GPIOA->BRR = LED_LOW_GPIOA_MASK;
+    GPIOB->BRR = LED_LOW_GPIOB_MASK;
+    GPIOC->BRR = LED_LOW_GPIOC_MASK;
     led_wait_cycles(cycles);
     led_all_low_off();
 }
 
 static void led_all_low_off(void)
 {
-    uint32_t i;
-
     /* 低边为低有效，全部输出高电平即可关闭所有 LED。 */
-    for (i = 0U; i < LED_MATRIX_COLS; ++i)
-    {
-        HAL_GPIO_WritePin(s_low_pins[i].port, s_low_pins[i].pin, GPIO_PIN_SET);
-    }
+    GPIOA->BSRR = LED_LOW_GPIOA_MASK;
+    GPIOB->BSRR = LED_LOW_GPIOB_MASK;
+    GPIOC->BSRR = LED_LOW_GPIOC_MASK;
 }
 
 static void led_set_low_side(uint8_t row)
 {
-    uint32_t col;
-    uint8_t row_data = s_frame[row];
+    uint8_t row_data = (uint8_t)(s_frame[row] & 0x7FU);
 
     /*
      * 低边为低有效：缓存 bit=1 时输出 RESET 吸电流，
      * 缓存 bit=0 时输出 SET，避免未选中的 LED 串光。
      */
-    /* row 在调用前已经由 led_scan() 限制为 0~7。 */
-    for (col = 0U; col < LED_MATRIX_COLS; ++col)
-    {
-        GPIO_PinState state;
-
-        /* L14 在 Q 行切换期间始终保持关闭。 */
-        if (col == LED_DECIMAL_COL)
-        {
-            state = GPIO_PIN_SET;
-        }
-        else
-        {
-            state = ((row_data & (uint8_t)(1U << col)) != 0U) ?
-                    GPIO_PIN_RESET : GPIO_PIN_SET;
-        }
-        HAL_GPIO_WritePin(s_low_pins[col].port, s_low_pins[col].pin, state);
-    }
+    /* led_scan() 已先批量关闭全部低边；这里只需一次性拉低有效线。 */
+    led_low_apply(row_data);
 }
 
 static void led_set_pressure_decimal_side(uint8_t first_row)
@@ -210,51 +229,33 @@ static void led_set_pressure_decimal_side(uint8_t first_row)
         if ((s_frame[row] & (uint8_t)(1U << LED_DECIMAL_COL)) != 0U)
         {
             /* 缓存已约束每排最多一个 DP；找到后只打开对应高边。 */
-            HAL_GPIO_WritePin(s_high_pins[row].port,
-                              s_high_pins[row].pin, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(s_low_pins[LED_DECIMAL_COL].port,
-                              s_low_pins[LED_DECIMAL_COL].pin, GPIO_PIN_RESET);
+            led_high_select(&s_high_pins[row]);
+            led_low_apply((uint8_t)(1U << LED_DECIMAL_COL));
             return;
         }
     }
-
-    /* 当前压力值不需要小数点时，保持整个 DP 时隙熄灭。 */
-    HAL_GPIO_WritePin(s_low_pins[LED_DECIMAL_COL].port,
-                      s_low_pins[LED_DECIMAL_COL].pin, GPIO_PIN_SET);
 }
 
 static void led_set_mode_side(void)
 {
-    uint32_t col;
     uint8_t mode_mask = mode_led_get_mask();
     uint8_t dc_on = dc_led_is_charging();
+    uint8_t low_data = (uint8_t)(mode_mask & 0x07U);
 
     /*
      * Q1/L01 的额外扫描时隙同时承载模式灯和 DC 灯：
      * L00~L03 中最多点亮一个模式灯，L04/L05 为充电 DC 指示灯。
      */
-    /* 每次先把 8 条低边全部置为关闭，再按状态选择需要拉低的线。 */
-    for (col = 0U; col < LED_MATRIX_COLS; ++col)
+    /* 模式灯 bit0~bit2，充电灯占用 bit3/bit4。 */
+    if (dc_on != 0U)
     {
-        GPIO_PinState state = GPIO_PIN_SET;
-
-        if ((col < MODE_LED_COUNT) &&
-            ((mode_mask & (uint8_t)(1U << col)) != 0U))
-        {
-            state = GPIO_PIN_RESET;
-        }
-        else if ((dc_on != 0U) && ((col == 3U) || (col == 4U)))
-        {
-            /* L04/L01 和 L05/L01 是两只 DC 充电指示灯。 */
-            state = GPIO_PIN_RESET;
-        }
-        HAL_GPIO_WritePin(s_low_pins[col].port, s_low_pins[col].pin, state);
+        low_data |= 0x18U;
     }
+    led_low_apply(low_data);
 }
 
 static void led_set_unit_side(void)
 {
-    uint32_t col;
     uint8_t unit = unit_led_get_index();
 
     /*
@@ -264,18 +265,11 @@ static void led_set_unit_side(void)
     uint8_t cathode_col = (unit == 0U) ? 5U :
                           (unit == 1U) ? 6U : 7U;
 
-    /* 先关闭所有低边，只保留当前单位灯对应的低边为有效电平。 */
-    for (col = 0U; col < LED_MATRIX_COLS; ++col)
-    {
-        HAL_GPIO_WritePin(s_low_pins[col].port,
-                          s_low_pins[col].pin,
-                          (col == cathode_col) ? GPIO_PIN_RESET : GPIO_PIN_SET);
-    }
+    /* 先前已批量关闭所有低边；只拉低当前单位对应的低边。 */
+    led_low_apply((uint8_t)(1U << cathode_col));
 
     /* 前三个单位灯使用 L01，最后一个 L14-L08 使用 Q4/P08。 */
-    HAL_GPIO_WritePin(s_high_pins[(unit == 3U) ? 3U : 0U].port,
-                      s_high_pins[(unit == 3U) ? 3U : 0U].pin,
-                      GPIO_PIN_RESET);
+    led_high_select(&s_high_pins[(unit == 3U) ? 3U : 0U]);
 }
 
 void led_init(void)
@@ -335,17 +329,13 @@ void led_scan(void)
     {
         /* 普通矩阵行不驱动 L14，小数点由后面的独立时隙完成。 */
         led_set_low_side(s_scan_slot);
-        HAL_GPIO_WritePin(s_high_pins[s_scan_slot].port,
-                          s_high_pins[s_scan_slot].pin,
-                          GPIO_PIN_RESET);
+        led_high_select(&s_high_pins[s_scan_slot]);
     }
     else if (s_scan_slot == LED_MODE_SCAN_SLOT)
     {
         /* 辅助时隙 8：Q1/L01 驱动模式灯和 DC 充电灯。 */
         led_set_mode_side();
-        HAL_GPIO_WritePin(s_high_pins[0].port,
-                          s_high_pins[0].pin,
-                          GPIO_PIN_RESET);
+        led_high_select(&s_high_pins[0]);
     }
     else if (s_scan_slot == LED_UNIT_SCAN_SLOT)
     {
