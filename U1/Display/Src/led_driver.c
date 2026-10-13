@@ -141,7 +141,8 @@ static void led_scan_timer_start(void)
     TIM14->CNT = 0U;
     TIM14->SR = (uint32_t)~(TIM_SR_UIF | TIM_SR_CC1IF);
     TIM14->DIER |= TIM_DIER_UIE | TIM_DIER_CC1IE;
-    NVIC_SetPriority(TIM14_IRQn, 1U);
+    /* 显示扫描让位于 USART 和 EXTI，避免影响通信及低功耗唤醒响应。 */
+    NVIC_SetPriority(TIM14_IRQn, 2U);
     NVIC_ClearPendingIRQ(TIM14_IRQn);
     NVIC_EnableIRQ(TIM14_IRQn);
     TIM14->CR1 |= TIM_CR1_CEN;
