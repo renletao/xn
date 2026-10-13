@@ -58,7 +58,7 @@ static volatile uint8_t s_scan_suspended;
 /* 关断比较点提前 20 us，给 SS8550 和公共端留出固定消隐时间。 */
 #define LED_SCAN_BLANK_TICKS       480U
 
-/* 系统时钟固定为 24 MHz；3 kHz 时基使 12 个时隙得到 250 Hz 整屏刷新。 */
+/* 系统时钟固定为 24 MHz；4 kHz 时基使 12 个时隙得到约 333 Hz 整屏刷新。 */
 #define LED_SCAN_TIMER_RELOAD      ((24000000U / LED_SCAN_TIMER_HZ) - 1U)
 
 /* 按实际 GPIO 端口分组的高边和低边掩码，刷新路径直接写 BSRR/BRR。 */
